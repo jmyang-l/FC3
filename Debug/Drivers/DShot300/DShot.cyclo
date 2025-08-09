@@ -1,0 +1,3 @@
+../Drivers/DShot300/DShot.c:26:13:dshot_pack_one	4
+../Drivers/DShot300/DShot.c:56:6:DSHOT_Update	2
+../Drivers/DShot300/DShot.c:68:6:DSHOT_Start	2

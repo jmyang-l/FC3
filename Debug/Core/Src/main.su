@@ -1,0 +1,12 @@
+../Core/Src/main.c:77:1:__io_putchar	16	static
+../Core/Src/main.c:111:6:HAL_UART_RxCpltCallback	24	static
+../Core/Src/main.c:283:6:HAL_TIM_PWM_PulseFinishedCallback	16	static
+../Core/Src/main.c:306:8:HAL_ADC_ConvCpltCallback	16	static
+../Core/Src/main.c:323:8:HAL_UARTEx_RxEventCallback	16	static
+../Core/Src/main.c:369:5:main	24	static
+../Core/Src/main.c:662:6:SystemClock_Config	120	static
+../Core/Src/main.c:721:6:PeriphCommonClock_Config	200	static
+../Core/Src/main.c:746:6:handler01	8	static
+../Core/Src/main.c:756:6:MPU_Config	24	static
+../Core/Src/main.c:791:6:HAL_TIM_PeriodElapsedCallback	16	static
+../Core/Src/main.c:832:6:Error_Handler	4	static,ignoring_inline_asm

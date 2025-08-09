@@ -1,0 +1,12 @@
+../Drivers/BARO/baro.c:33:6:delay_ms	16	static
+../Drivers/BARO/baro.c:38:6:SPL06_Write_Byte	40	static
+../Drivers/BARO/baro.c:59:9:SPL06_Read_Byte	40	static
+../Drivers/BARO/baro.c:87:9:SPL06_Init	16	static
+../Drivers/BARO/baro.c:104:7:Temperature_conversion	24	static
+../Drivers/BARO/baro.c:121:7:Pressure_conversion	24	static
+../Drivers/BARO/baro.c:138:7:Scale_factor	24	static
+../Drivers/BARO/baro.c:157:6:Parameter_Reading	40	static
+../Drivers/BARO/baro.c:240:7:Correcting_Pressure	32	static
+../Drivers/BARO/baro.c:248:7:Correcting_Temperature	24	static
+../Drivers/BARO/baro.c:271:6:INIT_BARO	8	static
+../Drivers/BARO/baro.c:314:8:BARO_GPIO_EXTI_Callback	32	static

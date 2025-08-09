@@ -1,0 +1,7 @@
+../Drivers/flight_control/attitude_estimator.c:9:7:attitude_get_quat	40	static
+../Drivers/flight_control/attitude_estimator.c:15:21:vec3f_norm	16	static
+../Drivers/flight_control/attitude_estimator.c:54:6:update_gyro_bias_from_temp	16	static
+../Drivers/flight_control/attitude_estimator.c:81:6:is_gyro_stationary	48	static
+../Drivers/flight_control/attitude_estimator.c:108:21:vec3f_normalize	24	static
+../Drivers/flight_control/attitude_estimator.c:131:6:attitude_update	128	static
+../Drivers/flight_control/attitude_estimator.c:364:9:attitude_get_euler	64	static

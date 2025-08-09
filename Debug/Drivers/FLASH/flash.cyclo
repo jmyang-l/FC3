@@ -1,0 +1,7 @@
+../Drivers/FLASH/flash.c:13:9:BSP_FM25V20A_Init	1
+../Drivers/FLASH/flash.c:34:9:BSP_FM25V20A_WriteEnable	1
+../Drivers/FLASH/flash.c:59:6:BSP_FM25V20A_Read_ID	1
+../Drivers/FLASH/flash.c:82:6:FM25V20A_Read	1
+../Drivers/FLASH/flash.c:113:9:BSP_FM25V20A_Write	3
+../Drivers/FLASH/flash.c:149:6:Init_FM25Vx	6
+../Drivers/FLASH/flash.c:181:6:FM25Vx_text	5

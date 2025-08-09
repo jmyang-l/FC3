@@ -1,0 +1,7 @@
+../Drivers/flight_control/position_control.c:39:6:assign_estimated_values	1
+../Drivers/flight_control/position_control.c:56:21:constrain	3
+../Drivers/flight_control/position_control.c:62:6:set_position_target	1
+../Drivers/flight_control/position_control.c:73:6:calculate_velocity_setpoint_pure	4
+../Drivers/flight_control/position_control.c:113:6:calculate_thrust_from_velocity_error	6
+../Drivers/flight_control/position_control.c:164:21:wrap_pi	3
+../Drivers/flight_control/position_control.c:183:6:thrust_to_attitude	11

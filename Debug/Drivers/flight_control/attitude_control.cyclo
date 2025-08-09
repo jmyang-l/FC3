@@ -1,0 +1,5 @@
+../Drivers/flight_control/attitude_control.c:14:6:update_W_rate	1
+../Drivers/flight_control/attitude_control.c:34:6:attitude_error_to_rates	5
+../Drivers/flight_control/attitude_control.c:74:21:constrain	3
+../Drivers/flight_control/attitude_control.c:108:6:rate_error_to_torque	4
+../Drivers/flight_control/attitude_control.c:173:6:torque_to_motor	2
