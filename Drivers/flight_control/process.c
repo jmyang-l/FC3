@@ -4,6 +4,8 @@
 
 // float m_y;
 // float m_x;
+	extern vec3f acc_bias  ;
+	extern vec3f gyro_bias ;
 
 extern quatf _qd ;//期望四元数
 
@@ -34,70 +36,35 @@ motor_out_t motor_out; // 电机输出值，由 torque_to_motor 函数计算得�
 void process_main(void)
 {
 
-	/*============================================================
-	 * 1. 上电静止 3 s 零偏校准（加速度 + 陀螺仪）
-	 *----------------------------------------------------------*/
-	static bool calib_done = false;
-	static int  calib_cnt  = 0;
-
-	static vec3f acc_bias  = {0};
-	static vec3f acc_sum   = {0};
-
-	static vec3f gyro_bias = {0};
-	static vec3f gyro_sum  = {0};
-
-	if (!calib_done) {
-	    /* 累积原始数据 */
-	    acc_sum.x  += BMI088.acc.m_s_2[xx];
-	    acc_sum.y  += BMI088.acc.m_s_2[yy];
-	    acc_sum.z  += BMI088.acc.m_s_2[zz];
-
-	    gyro_sum.x += BMI088.gyro.dps[xx];
-	    gyro_sum.y += BMI088.gyro.dps[yy];
-	    gyro_sum.z += BMI088.gyro.dps[zz];
-
-	    if (++calib_cnt >= 3000) {              // 5 s @1 kHz
-	        /* 计算平均值作为零偏 */
-	        acc_bias.x  = acc_sum.x  / calib_cnt;
-	        acc_bias.y  = acc_sum.y  / calib_cnt;
-	        acc_bias.z  = acc_sum.z  / calib_cnt;
-
-	        gyro_bias.x = gyro_sum.x / calib_cnt;
-	        gyro_bias.y = gyro_sum.y / calib_cnt;
-	        gyro_bias.z = gyro_sum.z / calib_cnt;
-
-	        calib_done = true;
-
-//	        printf("IMU零偏校准完成\r\n");
-//	        printf("  acc bias:  x=%.3f y=%.3f z=%.3f\r\n",
-//	               acc_bias.x, acc_bias.y, acc_bias.z);
-//	        printf("  gyro bias: x=%.3f y=%.3f z=%.3f\r\n",
-//	               gyro_bias.x, gyro_bias.y, gyro_bias.z);
-	    }
-	    return;          // 校准未完，直接退出主流程
+	if(!imu_gyrobias())//测量水平静止时陀螺仪的零偏
+	{
+//		printf("1\r\n");
+		return;
 	}
 
+
   // 0. 更新数据到position_estimator模块
-	get_accel(BMI088.acc.m_s_2[xx] - acc_bias.x,
-	          BMI088.acc.m_s_2[yy] - acc_bias.y,
-	          BMI088.acc.m_s_2[zz] - acc_bias.z);
+   get_accel(BMI088.acc.m_s_2[xx] ,
+	          BMI088.acc.m_s_2[yy] ,
+	          BMI088.acc.m_s_2[zz] );
    get_gyro((BMI088.gyro.dps[xx] - gyro_bias.x) ,
            (BMI088.gyro.dps[yy] - gyro_bias.y) ,
            (BMI088.gyro.dps[zz] - gyro_bias.z) );
 
 
 
-   vec3f accel = {{{BMI088.acc.m_s_2[xx] - acc_bias.x,
-	                BMI088.acc.m_s_2[yy] - acc_bias.y,
-	                BMI088.acc.m_s_2[zz] - acc_bias.z}}};
+   vec3f accel = {{{BMI088.acc.m_s_2[xx] ,
+	                BMI088.acc.m_s_2[yy] ,
+	                BMI088.acc.m_s_2[zz] }}};
    vec3f gyro = {{{
 		   (BMI088.gyro.dps[xx] - gyro_bias.x)   ,
 			 (BMI088.gyro.dps[yy] - gyro_bias.y) ,
 			 (BMI088.gyro.dps[zz] - gyro_bias.z)
    }}};
 
-//   printf("RAW: gyro=%.3f,%.3f,%.3f  acc=%.3f,%.3f,%.3f\n",
-//          gyro.x, gyro.y, gyro.z,
+//   printf("%f,%f,%f \r\n", gyro.x, gyro.y, gyro.z);
+
+//   printf("acc=%.3f,%.3f,%.3f\n",
 //          accel.x, accel.y, accel.z);
 //   printf("RAW: gyro=%.3f,%.3f,%.3f\n",
 //          gyro.x, gyro.y, gyro.z);
@@ -111,7 +78,7 @@ void process_main(void)
 //
 //    printf("  %f,  %f,  %f,  %f \r\n", current_quat.w, current_quat.x, current_quat.y, current_quat.z);
 //    printf("euler: roll = %f, pitch = %f, yaw = %f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
-//    printf("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
+    printf("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
 
 //    // 2. 位置估计
 //    accel.z = -accel.z ;//再更新z方向
@@ -158,7 +125,7 @@ void process_main(void)
         att_sp.roll = 0.0f;
         att_sp.pitch = 0.0f;
         att_sp.yaw = current_euler.yaw;
-        att_sp.thrust = 9.8f;
+        att_sp.thrust = 9.80665f;
 
         float cr = cosf(att_sp.roll  * 0.5f);    //直接计算期望四元数
         float sr = sinf(att_sp.roll  * 0.5f);
@@ -178,7 +145,7 @@ void process_main(void)
     // 4. 姿态控制
      attitude_error_to_rates();//计算期望角速度
      rate_error_to_torque(dt);//计算期望扭矩
-     printf(" %f, %f, %f\r\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2] );
+//     printf(" %f, %f, %f\r\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2] );
 //     printf("%f,%f,%f\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2]);
 //     printf("torque: %f, %f, %f\r\n", torque.v[0], torque.v[1], torque.v[2] );
      torque_to_motor(&torque, att_sp.thrust, &motor_out);//计算电机输出

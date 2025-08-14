@@ -2,7 +2,8 @@
 #define FLIGHT_CONTROL_ATTITUDE_ESTIMATOR_H_
 
 #include "position_estimator.h"
-#include "attitude_ekf.h"
+#include "imu_calib.h"
+
 // // 三维向量
 // typedef struct {
 //     union {
@@ -16,7 +17,11 @@
 // typedef struct { float w, x, y, z; } quatf; // 四元数
 #define ZUPT_WINDOW_LEN  100
 
-#define GYRO_BIAS_LIMIT  5.0f  // ±5 dps，可按需调整, 陀螺仪积分限幅
+/* PX4 式双阈值 —— 零偏冻结条件 */
+#define GYRO_BIAS_GYR_THRESH       0.06f   // rad/s ≈ 4.6 °/s
+#define GYRO_BIAS_ACC_ERR_THRESH   0.12f   // 加速度误差相对阈值
+
+#define GYRO_BIAS_LIMIT  0.02f  // ±1，可按需调整, 陀螺仪积分限幅
 
 // 定义一个结构体 euler_t，用于存储欧拉角，包括滚转角（roll）、俯仰角（pitch）和偏航角（yaw）
 typedef struct { float roll, pitch, yaw; } euler_t;

@@ -1,7 +1,7 @@
 #include "attitude_estimator.h"
 #include <math.h>
 #include <stdbool.h> // 包含 bool 类型定义
-#include "BMI088.h"
+
 
  quatf _q     = {{ {1, 0, 0, 0} }};   // 当前姿态四元数
  vec3f _gbias = {{ {0, 0, 0} }};      // 陀螺零偏
@@ -18,35 +18,6 @@ static inline float vec3f_norm(const vec3f *v)
 }
 
 
-///* ---------------------------------------------------------
-//   1. 温度-零偏模型（全局常量）
-//--------------------------------------------------------- */
-//static const float T0_1 = 29.38f;
-//static const float T0_2 = 40.00f;
-//
-////static const float gyro_bias_base1[3] = { 0.0001f*1.0f, -0.0001f,  0.0000f };
-////static const float gyro_k1[3]         = { -0.00753f*1.5f ,  0.00041f, 0.00044f };
-////
-////static const float gyro_bias_base2[3] = { -0.0794f*3.5f,  0.0042f*1.1f,  0.0047f };
-////static const float gyro_k2[3]         = {  0.0468f*1.7f,   1.1 * 0.0037f, -0.0041f };
-//
-//static const float gyro_bias_base1[3] = { 0.0001f , -0.0001f,  0.0000f };
-//static const float gyro_k1[3]         = { -0.00753f ,  0.00041f, 0.00044f };
-//
-//static const float gyro_bias_base2[3] = { -0.0794f,  0.0042f,  0.0047f };
-//static const float gyro_k2[3]         = {  0.0468f,  0.0037f, -0.0041f };
-//
-///* 温度转零偏，结果写入 bias_out[3] */
-//static void temp_to_gyro_bias(float temp, float *bias_out)
-//{
-//    if (temp <= T0_2) {
-//        for (int i = 0; i < 3; ++i)
-//            bias_out[i] = gyro_bias_base1[i] + gyro_k1[i] * (temp - T0_1);
-//    } else {
-//        for (int i = 0; i < 3; ++i)
-//            bias_out[i] = gyro_bias_base2[i] + gyro_k2[i] * (temp - T0_2);
-//    }
-//}
 
 /* ---------------------------------------------------------
    2. 温度零偏刷新接口
@@ -101,7 +72,7 @@ bool is_gyro_stationary(const vec3f *gyro)
     float sigma2 = sum / (float)ZUPT_WINDOW_LEN;
 
     /* 5. 返回判断结果 */
-    return sigma2 < 0.5f;  // 阈值可调
+    return sigma2 < 0.001f;  // 阈值可调
 }
 
 /* 把任意向量 v 就地归一化到单位长度，返回归一化后的长度（0 表示失败） */
@@ -133,8 +104,13 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
                      const vec3f *gyro )  // 指向陀螺仪数据的指针，单位为 rad/s
 
 {
-	/* 0. 每拍用温度校正一次零偏 */
-//	    update_gyro_bias_from_temp();
+	static calib_result_t accel_calib = {0};
+	if(!accel_calib_compute(&accel_calib))//计算加速度计校准后的零偏和比例因子
+	{
+		printf("error acc");
+		return;
+	}
+
 
     /* 1. 陀螺积分（一阶龙格库塔）    //“陀螺仪 x 轴读数→gcorr.x，y 轴读数→gcorr.y，z 轴读数→gcorr.z”必须与你选用的机体坐标系定义完全一致
      *                               //只要对应关系对得上，龙格库塔公式本身不区分 FRD/FLU
@@ -189,8 +165,16 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
     /* 归一化理论重力向量 */
     vec3f_normalize(&g_est);
 
-    /* 归一化加速度计读数 */
-    vec3f acc_norm = *accel;
+    //六面校准后的加速度计数据处理
+    /* 1. 先校正：offset + scale */
+    vec3f acc_cal;//校准后的加速度计数据
+
+    acc_cal.x = (accel->x - accel_calib.offset[0]) * accel_calib.scale[0];
+    acc_cal.y = (accel->y - accel_calib.offset[1]) * accel_calib.scale[1];
+    acc_cal.z = (accel->z - accel_calib.offset[2]) * accel_calib.scale[2];
+//    printf("%f,%f,%f \r\n", acc_cal.x, acc_cal.y, acc_cal.z);
+    /* 2. 再归一化 */
+    vec3f acc_norm = acc_cal;
     vec3f_normalize(&acc_norm);
 
     /* 然后再用 acc_norm × g_est 计算误差 */
@@ -200,151 +184,45 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
         acc_norm.x * g_est.y - acc_norm.y * g_est.x
     };
 
-    /* 1. 计算静态判别因子 */
-    float acc_mag = vec3f_norm(accel);      // √(ax²+ay²+az²)  ////////////////和PX4一一对应
-    float gyr_mag = vec3f_norm(gyro);       // √(gx²+gy²+gz²)
 
-    /* 2. 动态/静态阈值 */
-    bool is_static = (fabsf(acc_mag ) < 0.2f) && is_gyro_stationary(gyro);
 
-    /* 3. 分段 kp/ki */
-    float use_kp = is_static ? 2.5f  : 1.5f;   // 静止快，机动稳
-    float use_ki = is_static ? 0.002f : 0.00f;   // 静止收敛，机动冻结
-//    if(is_static)
-//    {
-//        printf("静止\r\n");
-//    }
-//    float use_kp = 0.5f;   // PX4默认值
-//    float use_ki = 0.02f;   //
+    /* ---- 4. PX4 式双阈值：是否允许零偏更新 ---- */
+    const float acc_sq_norm = acc_cal.x*acc_cal.x + acc_cal.y*acc_cal.y + acc_cal.z*acc_cal.z;
+    const float acc_err_norm = fabsf(acc_sq_norm - GRAVITY*GRAVITY) / (GRAVITY*GRAVITY);
 
-//    /* 动态零偏补偿 */
-//        static vec3f bias_lpf = {0};  // 低通滤波器状态  ////////////////和PX4一一对应
-//        float alpha = 0.9995f;        // 时间常数 ≈ 2 s，=T/(1-alpha)
-//        if (is_static) {
-//            for (int i = 0; i < 3; ++i) {
-//                bias_lpf.v[i] = alpha * bias_lpf.v[i] + (1.0f - alpha) * gyro->v[i];
-//                _gbias.v[i] = bias_lpf.v[i];
-//            }
-//        }
+    const float gyr_mag   = vec3f_norm(gyro);
+    const bool  gyr_static = gyr_mag < GYRO_BIAS_GYR_THRESH;
+    const bool  acc_static = acc_err_norm < GYRO_BIAS_ACC_ERR_THRESH;
+    const bool  allow_bias_update = gyr_static && acc_static;
 
-    /* 4. 融合修正 */
+    /* ---- 5. 动态 Kp / Ki（保留你现有公式） ---- */
+    const float acc_conf   = 1.0f - fminf(acc_err_norm * 4.0f, 1.0f);
+    const float gyr_energy = fminf(gyr_mag * 2.0f, 1.0f);
+    const float motion_conf = (1.0f - gyr_energy) * acc_conf;
+
+    const float kp_max = 0.50f;
+    const float kp_min = 0.1f * kp_max;
+    const float ki_max = 0.0002f;
+    const float ki_min = 0.000f;
+
+    const float use_kp = kp_min + (kp_max - kp_min) * motion_conf;
+    const float use_ki = ki_min + (ki_max - ki_min) * motion_conf;
+
+    /* ---- 6. 融合修正 + 零偏更新（带冻结） ---- */
     for (int i = 0; i < 3; ++i) {
-    	if(i==0)//x轴，roll
-    	{
-    		_gbias.v[i] +=  use_ki * acc_err.v[i] * dt;
-            gcorr.v[i]  +=  use_kp * acc_err.v[i] + _gbias.v[i];
-    	}
-    	if(i==2)//z轴，yaw
-    	{
-            _gbias.v[i] +=  use_ki * acc_err.v[i] * dt;
-//            gcorr.v[i]  += 0.8 * use_kp * acc_err.v[i];
-            gcorr.v[i]  +=  use_kp * acc_err.v[i] + _gbias.v[i];
-    	}
-    	if(i==1)//y轴零偏比较严重
-    	{
-            _gbias.v[i] +=  use_ki * acc_err.v[i] * dt;
-//            gcorr.v[i]  += 0.6 * use_kp * acc_err.v[i];
-            gcorr.v[i]  +=  use_kp * acc_err.v[i] + _gbias.v[i];
-    	}
+        /* 仅在双阈值满足时更新零偏 */
+        if (allow_bias_update) {
+//            printf("1\r\n");
+            _gbias.v[i] += use_ki * acc_err.v[i] * dt;
+            /* 积分限幅 */
+            if (_gbias.v[i] >  GYRO_BIAS_LIMIT) _gbias.v[i] =  GYRO_BIAS_LIMIT;
+            if (_gbias.v[i] < -GYRO_BIAS_LIMIT) _gbias.v[i] = -GYRO_BIAS_LIMIT;
+        }
 
-    	// 🔒 积分限幅
-    	    if (_gbias.v[i] > GYRO_BIAS_LIMIT) {
-    	        _gbias.v[i] = GYRO_BIAS_LIMIT;
-    	    } else if (_gbias.v[i] < -GYRO_BIAS_LIMIT) {
-    	        _gbias.v[i] = -GYRO_BIAS_LIMIT;
-    	    }
-
+        /* 校正角速度 */
+        gcorr.v[i] += use_kp * acc_err.v[i] + _gbias.v[i];
     }
 
-//    printf("gyro_bias = %.4f, %.4f, %.4f\r\n",
-//           _gbias.x, _gbias.y, _gbias.z);
-//
-
-//    /* ---------- 静止零偏矫正（ZUPT） ---------- */////////////////和PX4一一对应
-//    static bool zupt_armed = false;
-//    static float zupt_cnt  = 0.0f;
-//
-//    /* 1. 判断是否真正静止 */
-//    bool is_zupt =
-//        (fabsf(acc_mag ) < 0.2f) &&is_gyro_stationary(gyro);
-//
-//    /* 2. 计时器：连续静止 0.5 s 触发一次 */
-//    if (is_zupt) {
-//        zupt_cnt += dt;
-//        if ( zupt_cnt >= 0.1f) {
-//            /* 3. 生成“期望姿态”：roll=0, pitch=0, yaw保留 */
-//            euler_t e_now = attitude_get_euler();
-//            quatf q_zero  = quat_from_euler(0.0f, 0.0f, e_now.yaw);
-//            _q = q_zero;
-//
-//            /* 4. 可选：把陀螺零偏也清零，防止后续漂移 */
-//            _gbias = (vec3f){{ {0, 0, 0} }};
-//
-////            printf("大大大静止大大大静止大大大静止大大大静止大大大静止\r\n");
-//            zupt_cnt = 0.0f;
-//        }
-//        zupt_armed = true;
-//    } else {
-//        zupt_cnt = 0.0f;
-//        zupt_armed = false;
-//    }
-
-
-//    /* 4. 计算姿态旋转矩阵                      //直接用四元数误差来计算期望角速度
-//     * 根据更新后的四元数计算全局姿态旋转矩阵。
-//     */
-//    float qw = _q.w;
-//    float qx = _q.x;
-//    float qy = _q.y;
-//    float qz = _q.z;
-//
-//    _R[0][0] = 1 - 2*qy*qy - 2*qz*qz;
-//    _R[0][1] = 2*qx*qy - 2*qz*qw;
-//    _R[0][2] = 2*qx*qz + 2*qy*qw;
-//    _R[1][0] = 2*qx*qy + 2*qz*qw;
-//    _R[1][1] = 1 - 2*qx*qx - 2*qz*qz;
-//    _R[1][2] = 2*qy*qz - 2*qx*qw;
-//    _R[2][0] = 2*qx*qz - 2*qy*qw;
-//    _R[2][1] = 2*qy*qz + 2*qx*qw;
-//    _R[2][2] = 1 - 2*qx*qx - 2*qy*qy;
-
-//    // 添加 printf 语句来输出旋转矩阵 _R
-//    printf("Rotation Matrix _R:\n");
-//    for (int i = 0; i < 3; ++i) {
-//        for (int j = 0; j < 3; ++j) {
-//            printf("%.6f ", _R[i][j]);
-//        }
-//        printf("\n");
-//    }
-
-    // /* 磁力计误差（水平面投影）
-    //  * 首先根据当前的姿态四元数估计磁力计在机体坐标系下的方向，
-    //  * 然后计算估计的磁力计方向与实际磁力计方向之间的误差。
-    //  */
-    // vec3f m_est = {
-    //     _q.w*_q.w + _q.x*_q.x - _q.y*_q.y - _q.z*_q.z,  // 估计的磁力计方向在 x 轴的分量
-    //     2.0f * (_q.x*_q.y + _q.w*_q.z),  // 估计的磁力计方向在 y 轴的分量
-    //     2.0f * (_q.x*_q.z - _q.w*_q.y)   // 估计的磁力计方向在 z 轴的分量
-    // };
-    // // 计算磁力计误差，磁偏角可在此加入，当前磁偏角设为 0
-    // float m_err = atan2f(m_est.y, m_est.x) - 0.0f;
-    // // 根据磁力计误差计算磁力计修正量
-    // vec3f mag_corr = {
-    //     -m_err * 2.0f * (_q.x*_q.z - _q.w*_q.y),  // x 轴磁力计修正量
-    //     -m_err * 2.0f * (_q.y*_q.z + _q.w*_q.x),  // y 轴磁力计修正量
-    //     -m_err * (_q.w*_q.w - _q.x*_q.x - _q.y*_q.y + _q.z*_q.z)  // z 轴磁力计修正量
-    // };
-
-    // /* 融合修正量
-    //  * 将加速度误差和磁力计误差融合，使用比例积分控制器对陀螺仪的零偏和校正后的数据进行修正。
-    //  */
-    // const float kp = 0.2f, ki = 0.1f;  // 比例系数和积分系数
-    // for (int i = 0; i < 3; ++i) {
-    //     // 积分部分：更新陀螺仪零偏
-    //     _gbias.v[i] += ki * (acc_err.v[i] + mag_corr.v[i]) * dt;
-    //     // 比例部分：更新校正后的陀螺仪数据
-    //     gcorr.v[i]  += kp * (acc_err.v[i] + mag_corr.v[i]);
-    // }
 }
 
 

@@ -2,12 +2,13 @@
 #define FLIGHT_CONTROL_PROCESS_H_
 #include "main.h"
 #include "position_control.h"
-#include "position_estimator.h"
+//#include "position_estimator.h"
 #include "attitude_control.h"
 #include "attitude_estimator.h"
 //#include "attitude_ekf.h"
 //外设驱动
-#include "BMI088.h"
+//#include "BMI088.h"
+#include "imu_calib.h"
 #include "baro.h"
 #include "light_flow.h"
 #include "DShot.h"
