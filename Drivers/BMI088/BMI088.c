@@ -234,9 +234,9 @@ static uint8_t BMI088_ACC_Congfig(SPI_HandleTypeDef *hspi, int BOARD_OR_FLOAT)
         BMI088_Delay(5);
     }
     /* 可根据实际使用和加速度寄存器表修改加速度计测量范围 */
-    while (BMI088_Read_ACC(hspi, ACC_RANG, BOARD_OR_FLOAT) != Plus_Minus_24G) // 等待配置完成
+    while (BMI088_Read_ACC(hspi, ACC_RANG, BOARD_OR_FLOAT) != Plus_Minus_6G) // 等待配置完成
     {
-        BMI088_Write_Reg(hspi, ACC_RANG, Plus_Minus_24G, CS_ACC); // ACC Rang +- 24g;//
+        BMI088_Write_Reg(hspi, ACC_RANG, Plus_Minus_6G, CS_ACC); // ACC Rang +- 24g;//
         BMI088_Delay(5);
     }
     while (BMI088_Read_ACC(hspi, 0x40, BOARD_OR_FLOAT) != 0xBA)
@@ -304,12 +304,12 @@ static uint8_t BMI088_GYRO_Congfig(SPI_HandleTypeDef *hspi, int BOARD_OR_FLOAT)
         }
     }
 
-    while (BMI088_Read_GYRO(hspi, GYRO_RANG, BOARD_OR_FLOAT) != Plus_Minus_500)
+    while (BMI088_Read_GYRO(hspi, GYRO_RANG, BOARD_OR_FLOAT) != Plus_Minus_1000)
     {
         //        uint8_t TEXTACC[1] = {0x06};
         //            HAL_UART_Transmit(&huart4, TEXTACC, 1, 100); //发送数据给串口
 
-        BMI088_Write_Reg(hspi, GYRO_RANG, Plus_Minus_500, CS_GYRO); // rang +-2000
+        BMI088_Write_Reg(hspi, GYRO_RANG, Plus_Minus_1000, CS_GYRO); // rang +-2000
         BMI088_Delay(5);
     }
     // bit #7 is Read Only
@@ -632,11 +632,11 @@ void IMU_Read(bool a)
 
         for (int i = 0; i < 3; i++)
         {
-            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.125f*0.18f - gyro_offset[i];
+            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.250f*0.175f;
             mympu->gyro.dps[i] = lpf_allpy(&gyro_filter[i], mympu->gyro.dps[i]);
 
-            mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2 - accel_offset[i];
-            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter[i], mympu->acc.origin[i]);
+            mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2;
+            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter[i], mympu->acc.m_s_2[i]);
         }
     }
     else
