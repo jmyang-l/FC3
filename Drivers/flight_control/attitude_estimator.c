@@ -6,6 +6,36 @@
  quatf _q     = {{ {1, 0, 0, 0} }};   // 当前姿态四元数
  vec3f _gbias = {{ {0, 0, 0} }};      // 陀螺零偏
 
+ /* ---------- 加速度计六面体 ---------- */
+ /* ========== 你在这里填 6 面数据 ========== */
+ static float acc_raw1[6][3] = {
+     /*  +X,      -X,       +Y,       -Y,       +Z,       -Z  */
+     { 9.735f,    -0.068f,    -0.221f },  // +X
+     {-9.717f,    0.287f,    -0.380f },  // -X
+     { 0.066f,    9.796f,    -0.113f },  // +Y
+     { -0.291f,   -9.680f,    0.236f },  // -Y
+     { 0.066f,    0.197f,    9.673f },  // +Z
+     { -0.103f,  -0.092f,   -9.775f }   // -Z
+ };
+
+ /* ---------- 加速度计六面体 ---------- */
+ /* ========== 你在这里填 6 面数据 ========== */
+ static float acc_raw2[6][3] = {
+     /*  +X,      -X,       +Y,       -Y,       +Z,       -Z  */
+     { 9.745f,    -0.096f,    0.133f },  // +X
+     {-9.698f,    0.152f,    -0.129f },  // -X
+     { -0.048f,    9.699f,    0.210f },  // +Y
+     { -0.231f,   -9.760f,    0.562f },  // -Y
+     { 0.011f,    0.122f,    10.005f },  // +Z
+     { 0.006f,    -0.031f,   -9.456f }   // -Z
+ };
+
+ /* ---------- 在线零偏估计（EKF 简化版） ---------- */
+ static vec3f _gyro_bias_P = {{{1e-3f, 1e-3f, 1e-3f}}};   // 协方差初值   想让初始收敛更快	增大 P
+ static vec3f _gyro_bias_Q = {{{5e-6f, 5e-6f, 5e-6f}}};   // 过程噪声      想让零偏“一直慢慢跟”	增大 Q（允许零偏随时间变化）
+ static vec3f _gyro_bias_R = {{{5e-3f, 5e-3f, 5e-3f}}};   // 观测噪声     想让观测更激进	减小 R（更相信加速度计）
+ static uint16_t _still_cnt = 0;                        // 静止计数器
+
 quatf attitude_get_quat(void) {
     return _q;
 }
@@ -17,7 +47,11 @@ static inline float vec3f_norm(const vec3f *v)
     return sqrtf(v->x * v->x + v->y * v->y + v->z * v->z);
 }
 
-
+/* ----------  工具函数 ---------- */
+static inline float constrain(float val, float min, float max)
+{
+    return val < min ? min : (val > max ? max : val);
+}
 
 /* ---------------------------------------------------------
    2. 温度零偏刷新接口
@@ -94,6 +128,7 @@ static inline float vec3f_normalize(vec3f *v)
     return len;
 }
 
+extern bool use_imu;
 /* 单步姿态更新：IMU → 四元数
  * 此函数用于根据IMU（惯性测量单元）的传感器数据（加速度计、陀螺仪和磁力计）
  * 进行单步的姿态更新，首先将陀螺仪数据积分得到四元数表示的姿态，
@@ -104,13 +139,21 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
                      const vec3f *gyro )  // 指向陀螺仪数据的指针，单位为 rad/s
 
 {
-	static calib_result_t accel_calib = {0};
-	if(!accel_calib_compute(&accel_calib))//计算加速度计校准后的零偏和比例因子
+	static calib_result_t accel_calib1 = {0};
+	static calib_result_t accel_calib2 = {0};
+	calib_result_t *accel_calib;
+	if(!accel_calib_compute(&accel_calib1 , acc_raw1)&&!accel_calib_compute(&accel_calib2 , acc_raw2))//计算加速度计校准后的零偏和比例因子
 	{
 		printf("error acc");
 		return;
 	}
 
+    if(use_imu){
+    	accel_calib = &accel_calib2;
+    }
+    else{
+    	accel_calib = &accel_calib1;
+    }
 
     /* 1. 陀螺积分（一阶龙格库塔）    //“陀螺仪 x 轴读数→gcorr.x，y 轴读数→gcorr.y，z 轴读数→gcorr.z”必须与你选用的机体坐标系定义完全一致
      *                               //只要对应关系对得上，龙格库塔公式本身不区分 FRD/FLU
@@ -169,9 +212,9 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
     /* 1. 先校正：offset + scale */
     vec3f acc_cal;//校准后的加速度计数据
 
-    acc_cal.x = (accel->x - accel_calib.offset[0]) * accel_calib.scale[0];
-    acc_cal.y = (accel->y - accel_calib.offset[1]) * accel_calib.scale[1];
-    acc_cal.z = (accel->z - accel_calib.offset[2]) * accel_calib.scale[2];
+    acc_cal.x = (accel->x - accel_calib->offset[0]) * accel_calib->scale[0];
+    acc_cal.y = (accel->y - accel_calib->offset[1]) * accel_calib->scale[1];
+    acc_cal.z = (accel->z - accel_calib->offset[2]) * accel_calib->scale[2];
 //    printf("%f,%f,%f \r\n", acc_cal.x, acc_cal.y, acc_cal.z);
     /* 2. 再归一化 */
     vec3f acc_norm = acc_cal;
@@ -205,7 +248,15 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
     const float ki_max = 0.0002f;
     const float ki_min = 0.000f;
 
-    const float use_kp = kp_min + (kp_max - kp_min) * motion_conf;
+//    /* 4-1 新可信度：err>0.20 直接关死 *///////////////改进一：把“剧烈机动”期间的加速度观测 完全关掉，避免非重力分量污染姿态
+//float w_acc = (acc_err_norm < 0.20f)
+//            ?(1.0f - powf(acc_err_norm * 5.0f, 3.0f))
+//            : 0.0f;
+//
+///* 4-2 直接乘到 Kp 上 */
+//float use_kp = kp_min + (kp_max - kp_min)  * w_acc;
+
+    float use_kp = kp_min + (kp_max - kp_min)  * motion_conf;
     const float use_ki = ki_min + (ki_max - ki_min) * motion_conf;
 
     /* ---- 6. 融合修正 + 零偏更新（带冻结） ---- */
@@ -222,6 +273,54 @@ void attitude_update(float dt,  // 时间间隔，单位为秒，用于积分计
         /* 校正角速度 */
         gcorr.v[i] += use_kp * acc_err.v[i] + _gbias.v[i];
     }
+
+//    /* ---------- 在线零偏估计 ---------- */
+//    bool stationary =
+//        (vec3f_norm(gyro) < 0.15f) &&                       // 陀螺静止
+//        (fabsf(vec3f_norm(accel) - GRAVITY) < 0.20f);        // 加计可信
+//
+//    /* 静止计数器：连续 20 帧（400 Hz→50 ms）才更新 */
+//    if (stationary) {
+//        _still_cnt++;
+//    } else {
+//        _still_cnt = 0;
+//    }
+//
+//    if (_still_cnt >= 30) {
+////    	        printf("\r\n1\r\n");
+//
+//        /* 构造观测残差：加计重力叉乘 */
+//        vec3f g_world = {{0.0f, 0.0f, GRAVITY}};
+//        vec3f g_body;
+//        /* 用当前四元数把世界重力转到机体 */
+//        g_body.x = 2.0f * (_q.x * _q.z - _q.w * _q.y);
+//        g_body.y = 2.0f * (_q.y * _q.z + _q.w * _q.x);
+//        g_body.z = -(_q.w * _q.w - _q.x * _q.x - _q.y * _q.y + _q.z * _q.z);
+//        vec3f_normalize(&g_body);
+//
+//        vec3f acc_cal;
+//        acc_cal.x = (accel->x - accel_calib->offset[0]) * accel_calib->scale[0];
+//        acc_cal.y = (accel->y - accel_calib->offset[1]) * accel_calib->scale[1];
+//        acc_cal.z = (accel->z - accel_calib->offset[2]) * accel_calib->scale[2];
+//        vec3f_normalize(&acc_cal);
+//
+//        vec3f innov;
+//        innov.x = acc_cal.y * g_body.z - acc_cal.z * g_body.y;
+//        innov.y = acc_cal.z * g_body.x - acc_cal.x * g_body.z;
+//        innov.z = acc_cal.x * g_body.y - acc_cal.y * g_body.x;
+//
+//        /* 卡尔曼增益 & 更新零偏 *////////////////////////////////////////////////////////////加大p
+//        for (int i = 0; i < 3; ++i) {
+//            float K = _gyro_bias_P.v[i] / (_gyro_bias_P.v[i] + _gyro_bias_R.v[i]);
+//            _gbias.v[i] += K * innov.v[i] * dt;               // 单位：rad/s
+//            _gbias.v[i] = constrain(_gbias.v[i], -GYRO_BIAS_LIMIT, GYRO_BIAS_LIMIT);
+//            _gyro_bias_P.v[i] = (1.0f - K) * _gyro_bias_P.v[i] + _gyro_bias_Q.v[i];
+//
+//            float delta = K * innov.v[i] * dt;
+////            printf("delta[%d]=%.8f\n", i, delta);
+//        }
+//        _still_cnt = 0;   // 清零，避免连续触发
+//    }
 
 }
 
@@ -254,7 +353,7 @@ euler_t attitude_get_euler(void){
         /* 2. 用 PX4 的 Z-Y-X（yaw-pitch-roll）公式（FRD 坐标系） */
             e.roll  = atan2f( 2.0f*(w*x + y*z), 1.0f - 2.0f*(x*x + y*y) );   // 绕 x 轴
             e.pitch = asinf ( 2.0f*(w*y - z*x) );                            // 绕 y 轴
-            e.yaw   = -atan2f( 2.0f*(w*z + x*y), 1.0f - 2.0f*(x*x + z*z) );   // 绕 z 轴
+            e.yaw   = atan2f( 2.0f*(w*z + x*y), 1.0f - 2.0f*(x*x + z*z) );   // 绕 z 轴
 
             /* 3. 万向节锁：PX4 不强制 yaw=0，而是沿用上面的 atan2，保持连续性
                因此直接删掉你原来的 if (test>0.99) / if (test<-0.99) 分支 */

@@ -18,10 +18,10 @@
 #define ZUPT_WINDOW_LEN  100
 
 /* PX4 式双阈值 —— 零偏冻结条件 */
-#define GYRO_BIAS_GYR_THRESH       0.06f   // rad/s ≈ 4.6 °/s
-#define GYRO_BIAS_ACC_ERR_THRESH   0.12f   // 加速度误差相对阈值
+#define GYRO_BIAS_GYR_THRESH       0.08f   // rad/s ≈ 4.6 °/s
+#define GYRO_BIAS_ACC_ERR_THRESH   0.15f   // 加速度误差相对阈值
 
-#define GYRO_BIAS_LIMIT  0.02f  // ±1，可按需调整, 陀螺仪积分限幅
+#define GYRO_BIAS_LIMIT  0.04f  // ± X rad，可按需调整, 陀螺仪积分限幅
 
 // 定义一个结构体 euler_t，用于存储欧拉角，包括滚转角（roll）、俯仰角（pitch）和偏航角（yaw）
 typedef struct { float roll, pitch, yaw; } euler_t;
