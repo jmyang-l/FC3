@@ -18,6 +18,6 @@ bool imu_gyrobias(void);
 
 /* ---------- 加速度计六面体校准 ---------- */
 
-bool accel_calib_compute(calib_result_t *out);
+bool accel_calib_compute(calib_result_t *out, float acc_raw[6][3]);
 
 #endif /* BMI088_IMU_CALIB_H_ */

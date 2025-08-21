@@ -214,7 +214,7 @@ void BMI088_Read_TMP(float *temperate);
 #define GG 9.8															// 重力加速?
 /* 现在量程设定为±6g */
 #define MPU_ACCE_M_S_2 (6.0 * GG / 32768.0) //单位换算，将LSB化为m/(s^2)，GG前面的"X"需根据量程修改
-#define MPU_GYRO_TO_DPS (2000 / 32768.0)    //单位换算，将LSB化为 gegree/s
+#define MPU_GYRO_TO_DPS (500 / 32768.0)    //单位换算，将LSB化为 gegree/s
 #define MPU_MAGN_TO_GS (4800 / 16384.0 / 100.0)            //单位换算，将LSB化为Gs
 #define MPU_MAGN_TO_UT (4800 / 16384.0)            //单位换算，将GS化为UT
 #define MPU_TEMP_K (0.002995177763f)            //degC/LSB

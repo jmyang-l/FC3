@@ -59,8 +59,10 @@
 float accel_offset[3] = {0.0f, 0.0f, 0.0f}; // 加速度计三轴零偏
 float gyro_offset[3] = {0.0f, 0.0f, 0.0f};  // 陀螺仪三轴零偏
 
-low_pass_filter_t accel_filter[3]; // 加速度计滤波
-low_pass_filter_t gyro_filter[3];  // 陀螺仪滤波
+low_pass_filter_t accel_filter1[3]; // 加速度计滤波
+low_pass_filter_t gyro_filter1[3];  // 陀螺仪滤波
+low_pass_filter_t accel_filter2[3]; // 加速度计滤波
+low_pass_filter_t gyro_filter2[3];  // 陀螺仪滤波
 
 /* 用于读取BMI088温度数据 */
 // spi通信在bmi里面，bit（0）位为1表示读，0表示写，这里因为是小端是或0x80
@@ -304,12 +306,12 @@ static uint8_t BMI088_GYRO_Congfig(SPI_HandleTypeDef *hspi, int BOARD_OR_FLOAT)
         }
     }
 
-    while (BMI088_Read_GYRO(hspi, GYRO_RANG, BOARD_OR_FLOAT) != Plus_Minus_1000)
+    while (BMI088_Read_GYRO(hspi, GYRO_RANG, BOARD_OR_FLOAT) != Plus_Minus_500)
     {
         //        uint8_t TEXTACC[1] = {0x06};
         //            HAL_UART_Transmit(&huart4, TEXTACC, 1, 100); //发送数据给串口
 
-        BMI088_Write_Reg(hspi, GYRO_RANG, Plus_Minus_1000, CS_GYRO); // rang +-2000
+        BMI088_Write_Reg(hspi, GYRO_RANG, Plus_Minus_500, CS_GYRO); // rang +-2000
         BMI088_Delay(5);
     }
     // bit #7 is Read Only
@@ -429,8 +431,10 @@ uint8_t BMI088_FLOAT_ACC_GYRO_Init(SPI_HandleTypeDef *hspi)
 
     for (int i = 0; i < 3; i++) // 初始化滤波器
     {
-        lpf_set_cutoff_frequency(&accel_filter[i], 800, 20);
-        lpf_set_cutoff_frequency(&gyro_filter[i], 800, 20);
+        lpf_set_cutoff_frequency(&accel_filter1[i], 800, 20);
+        lpf_set_cutoff_frequency(&gyro_filter1[i], 800, 20);
+        lpf_set_cutoff_frequency(&accel_filter2[i], 800, 20);
+        lpf_set_cutoff_frequency(&gyro_filter2[i], 800, 20);
     }
 
     return 1;
@@ -632,11 +636,11 @@ void IMU_Read(bool a)
 
         for (int i = 0; i < 3; i++)
         {
-            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.250f*0.175f;
-            mympu->gyro.dps[i] = lpf_allpy(&gyro_filter[i], mympu->gyro.dps[i]);
+            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.01745f;
+            mympu->gyro.dps[i] = lpf_allpy(&gyro_filter1[i], mympu->gyro.dps[i]);
 
             mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2;
-            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter[i], mympu->acc.m_s_2[i]);
+            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter1[i], mympu->acc.m_s_2[i]);
         }
     }
     else
@@ -648,11 +652,11 @@ void IMU_Read(bool a)
 
         for (int i = 0; i < 3; i++)
         {
-            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.125f - gyro_offset[i];
-//            mympu->gyro.dps[i] = lpf_allpy(&gyro_filter[i], mympu->gyro.dps[i]);
+            mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.01745f;
+            mympu->gyro.dps[i] = lpf_allpy(&gyro_filter2[i], mympu->gyro.dps[i]);
 
-            mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2 - accel_offset[i];
-//            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter[i], mympu->acc.origin[i]);
+            mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2;
+            mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter2[i], mympu->acc.m_s_2[i]);
         }
     }
 }
