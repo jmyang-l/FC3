@@ -39,6 +39,7 @@
 #include <stdio.h> // 包含标准输入输出函数原型
 #include "position_estimator.h"
 #include "process.h"
+#include "imu_selector.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,7 +97,8 @@ extern DMA_HandleTypeDef hdma_adc1;  // ADC1的DMA句柄
 extern DMA_HandleTypeDef hdma_adc2;  // ADC2的DMA句柄
 
 uint8_t rx_buffer[1];
-bool BMIx = 0;
+bool BMIx = false;//false对应spi1的bmi088，true对应spi4的bmi088_2
+
 //BMIx为0时对应spi1的bmi088，为1时对应spi4的bmi088_2
 
 // 全局变量：油门
@@ -355,10 +357,11 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
   }
 
   uint16_t t=0;
+  uint16_t tt=0;
   uint8_t bat_cur=0;
-
-
-
+  uint8_t circle=0;
+  uint8_t select_imu=0;
+  bool use_imu = false;//选择使用哪个imu
 
 /* USER CODE END 0 */
 
@@ -430,7 +433,7 @@ int main(void)
 
   /*-----------初始化并使能BMI088-----------*/
    BMI088_FLOAT_ACC_GYRO_Init(&hspi1);
-//   BMI088_FLOAT_ACC_GYRO_Init(&hspi4);
+   BMI088_FLOAT_ACC_GYRO_Init(&hspi4);
 
   /*--------FLASH--------*/
 //    Init_FM25Vx();    //初始化flash：FM25V20A
@@ -474,23 +477,66 @@ int main(void)
 
   HAL_TIM_Base_Start(&htim7);   // 放在 main 里或任务初始化里一次即可
 
-
+  int del=0;
+  bool del_flag=false;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-//	  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7);
-        // 建议去掉，或者改成 1~2 ms，0 实际没延时
+
+
+	  if(select_imu==1)//0.5s打分一次，选择使用哪个imu
+	  {
+		  select_imu=0;
+//		  imu_selector_get_active(&use_imu);
+//		  use_imu = use_imu ? false : true;  //false代表使用第一个imu，ture代表使用第二个imu
+		  use_imu = true;
+
+	if(del<4)//添加适当的延时，3s后再开始计算零偏
+	{
+		del++;
+		if(del==3)
+		{
+			del_flag=true;
+		}
+	}
+
+//      if(use_imu){
+//    	  printf("_2\r\n");
+//      }
+//      else{
+//    	  printf("_1\r\n");
+//      }
+
+	  }
+
+//	  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7); 测量时间代码段
+
+//    需要测的代码
+
 //	  uint32_t end = __HAL_TIM_GET_COUNTER(&htim7);
 //
 //	  uint32_t us = (end >= start) ? (end - start) : (0xFFFF - start + end);
 //	  printf("耗时: %lu us\r\n", us);
 
-	  	  IMU_Read(BMIx);
-	  	  process_main();
-	  	  HAL_Delay(1);
+	  if(circle == 1 && del_flag==true)
+	  {
+//		  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7);
+
+		    circle = 0;
+
+	  	IMU_Read(use_imu);//读取第一个imu
+	  	process_main();
+
+
+//	  	uint32_t end = __HAL_TIM_GET_COUNTER(&htim7);
+//	  	uint32_t us = (end >= start) ? (end - start) : (0xFFFF - start + end);
+//	  	printf("耗时: %lu us\r\n", us);
+//	  	  HAL_Delay(1);
+	  }
+
 
 //		 throttle_motor[0] = (motor_out.m[1]/10) *maxmotor;
 //		 throttle_motor[1] = (motor_out.m[2]/10) *maxmotor;
@@ -626,34 +672,19 @@ int main(void)
 //      printf("加速度_z：%2f \r\n",-BMI088.acc.m_s_2[zz]);
 //
 
-//
-//	printf("x = %f\r\n y = %f\r\n",(-(float)((int64_t)payload.flow_vel_x * payload.distance)*0.001)*0.01f,  //验证光流
-//		                      ((float)((int64_t)payload.flow_vel_y * payload.distance)*0.001)*0.01f);
 //   printf("BAT_V=%.2f\r\n\r\n",BAT_V);
 ////   printf("电机电流=%.2f\r\n",Dc_Motor_Current);
 //
 
-
-//	  printf("  %f  \r\n",a_x);
-//	  printf("高度:  %f m \r\n",d_x);
-//	  printf("  %f cm/s \r\n",b_x);
-//	  printf("  %f m/s \r\n",m_x);
-//	  printf("  %f m \r\n\r\n",c_x);
-
-//	  printf("  %f  \r\n",a_y);
-//	  printf("高度:  %f m \r\n",d_y);
-//	  printf("  %f cm/s \r\n",b_y);
-//	  printf("  %f m/s \r\n",m_y);
-//	  printf("  %f m \r\n\r\n",c_y);
-//
 //   HAL_Delay(50);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	  }
   /* USER CODE END 3 */
 }
+
 
 /**
   * @brief System Clock Configuration
@@ -802,13 +833,23 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM6)
     {
       //定时器1ms中断服务
-	  void check_time_stability_simple(handler01);
+//	  void check_time_stability_simple(handler01);
 
 	  t++;
-	  if(t==1500)
+	  tt++;
+	  if(t==10000)
 	  {
 		  t=0;
-		  bat_cur = 1;
+		  select_imu = 1;
+	  }
+	  if(tt==25)
+	  {
+		  tt=0;
+		  circle = 1;
+	  }
+
+
+//		  bat_cur = 1;
 //		  uint8_t r[1];
 //		  r[0]=1;
 //		  HAL_UART_Transmit(&huart2, (uint8_t*)&r, sizeof(r), 100);
@@ -819,11 +860,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	  }
 //		 IMU_Read(BMIx);
 //		 process_main();
+}
 
-    }
+
 
   /* USER CODE END Callback 1 */
-}
+
 
 /**
   * @brief  This function is executed in case of error occurrence.
