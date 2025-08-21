@@ -4,6 +4,8 @@
 
 // float m_y;
 // float m_x;
+
+    extern bool use_imu;
 	extern vec3f acc_bias  ;
 	extern vec3f gyro_bias ;
 
@@ -22,7 +24,7 @@ extern float _thrust_sp[3];//推力矢量
 extern vec3f _rates_sp;//期望角速度
 extern vec3f torque;//期望扭矩
 // 假设的控制周期
-const float dt = 0.001f;
+const float dt = 0.0025f;
 
 // 假设的当前偏航角
 float current_yaw_rad = 0.0f;
@@ -31,7 +33,7 @@ extern vec3f torque;//力矩向量，由 rate_error_to_torque 函数计算得到
 motor_out_t motor_out; // 电机输出值，由 torque_to_motor 函数计算得到
 
 //const float DEG2RAD = 1.0f;
-
+uint8_t oula=0;
 
 void process_main(void)
 {
@@ -42,25 +44,33 @@ void process_main(void)
 		return;
 	}
 
+	  mpu *imu;
+    if(use_imu){
+        imu = &BMI088_2;
+    }
+    else{
+        imu = &BMI088;
+    }
 
-  // 0. 更新数据到position_estimator模块
-   get_accel(BMI088.acc.m_s_2[xx] ,
-	          BMI088.acc.m_s_2[yy] ,
-	          BMI088.acc.m_s_2[zz] );
-   get_gyro((BMI088.gyro.dps[xx] - gyro_bias.x) ,
-           (BMI088.gyro.dps[yy] - gyro_bias.y) ,
-           (BMI088.gyro.dps[zz] - gyro_bias.z) );
+    // 0. 更新数据到 position_estimator 模块
+    get_accel(imu->acc.m_s_2[xx],
+              imu->acc.m_s_2[yy],
+              imu->acc.m_s_2[zz]);
+    vec3f accel = {{
+        { imu->acc.m_s_2[xx],
+          imu->acc.m_s_2[yy],
+          imu->acc.m_s_2[zz] }
+    }};
 
 
-
-   vec3f accel = {{{BMI088.acc.m_s_2[xx] ,
-	                BMI088.acc.m_s_2[yy] ,
-	                BMI088.acc.m_s_2[zz] }}};
-   vec3f gyro = {{{
-		   (BMI088.gyro.dps[xx] - gyro_bias.x)   ,
-			 (BMI088.gyro.dps[yy] - gyro_bias.y) ,
-			 (BMI088.gyro.dps[zz] - gyro_bias.z)
-   }}};
+    get_gyro((imu->gyro.dps[xx] - gyro_bias.x),
+             (imu->gyro.dps[yy] - gyro_bias.y),
+             (imu->gyro.dps[zz] - gyro_bias.z));
+    vec3f gyro = {{
+        { imu->gyro.dps[xx] - gyro_bias.x,
+          imu->gyro.dps[yy] - gyro_bias.y,
+          imu->gyro.dps[zz] - gyro_bias.z }
+    }};
 
 //   printf("%f,%f,%f \r\n", gyro.x, gyro.y, gyro.z);
 
@@ -78,7 +88,12 @@ void process_main(void)
 //
 //    printf("  %f,  %f,  %f,  %f \r\n", current_quat.w, current_quat.x, current_quat.y, current_quat.z);
 //    printf("euler: roll = %f, pitch = %f, yaw = %f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
-    printf("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
+//    if(oula++==100)
+//    {
+//    	oula=0;
+    	printf("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
+//    }
+
 
 //    // 2. 位置估计
 //    accel.z = -accel.z ;//再更新z方向
@@ -145,8 +160,7 @@ void process_main(void)
     // 4. 姿态控制
      attitude_error_to_rates();//计算期望角速度
      rate_error_to_torque(dt);//计算期望扭矩
-//     printf(" %f, %f, %f\r\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2] );
-//     printf("%f,%f,%f\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2]);
+//     printf(" %f, %f, %f\r\n", _rates_sp.v[0], _rates_sp.v[1], _rates_sp.v[2] );//期望角速度
 //     printf("torque: %f, %f, %f\r\n", torque.v[0], torque.v[1], torque.v[2] );
      torque_to_motor(&torque, att_sp.thrust, &motor_out);//计算电机输出
 //
