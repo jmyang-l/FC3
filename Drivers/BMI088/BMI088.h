@@ -173,7 +173,7 @@ static void BMI088_read_muli_reg(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *
  * @date: 2022/05/31
  * @note:
  ****************************************************/
-uint8_t BMI088_FLOAT_ACC_GYRO_Init(SPI_HandleTypeDef *hspi);
+uint8_t BMI088_ACC_GYRO_Init(SPI_HandleTypeDef *hspi);
 
 
 
@@ -193,8 +193,8 @@ void BMI088_Read_TMP(float *temperate);
  * @brief: 用于配置对陀螺仪加速度计进行数据单位换算
  * @note:
  ****************************************************/
-#define BMI088 BMI088
-#define BMI088_2 BMI088_2
+//#define BMI088 BMI088
+//#define BMI088_2 BMI088_2
 #define xx 0
 #define yy 1
 #define zz 2
@@ -222,70 +222,54 @@ void BMI088_Read_TMP(float *temperate);
 typedef struct _accdata
 {
     short origin[XAISN];  //原始值
-    float offset[XAISN];      //零偏值
-    float offset_max[XAISN];  //零偏值最大值
-    float offset_min[XAISN];  //零偏值最小值
-    float calibration[XAISN]; //校准值
-    float filter[XAISN];      //滑动平均滤波值
     float m_s_2[XAISN];      //米每二次方秒
+        //时间戳
+    uint32_t acc_timestamp;//足够，不用担心溢出
 } accdata;
 
 typedef struct _gyrodata
 {
     short origin[XAISN];  //原始值
-    float offset_max[XAISN];  //零偏值最大值
-    float offset_min[XAISN];  //零偏值最小值
-    float offset[XAISN];      //零偏值
-    float calibration[XAISN]; //校准值
-    float filter[XAISN];      //滑动平均滤波值
-    float dps[XAISN];         //度每秒
-    float radps[XAISN];       //弧度每秒
-		/* 2022-01-11 加入滑动滤波 */
-		float last_filter[XAISN];
+    float dps[XAISN];         //弧度每秒
+      //时间戳
+    uint32_t gyro_timestamp;
 } gyrodata;
 
-struct _mpu
+#pragma pack(push, 1)
+typedef struct _mpu
 {
     accdata acc;
     gyrodata gyro;
 
+    uint8_t temp_originalbuff[2];
     float Temperature;
     uint8_t acc_id, gyro_id;
+
+    union {
+        struct {
+            uint8_t dummy1, dummy2;       // 第1字节：dummy（无效数据）
+            int16_t data[3];     // 第2-7字节：3个int16_t数据（每个占2字节）
+        } val;                   // 结构化访问：val.dummy、val.data[0]~val.data[2]
+        uint8_t buff[8];         // 字节数组访问：buff[0]（dummy）、buff[1]~buff[6]（数据）
+    } ACC;   //读到的加速度计原数据
+
     union
     {
-        int16_t data[3];
-        uint8_t buff[6];
-    } ACC, GYRO;
-    uint8_t temp_originalbuff[2];
-    uint8_t gyro_times;
-    uint8_t acc_times;
-    enum
-    {
-        ReadingACC,
-        ReadingGYRO,
-        IDLE,
-    } state;
+        struct {
+            uint8_t dummy1;       // 第1字节：dummy（无效数据）
+            int16_t data[3];     // 第2-7字节：3个int16_t数据（每个占2字节）
+        } val;                   // 结构化访问：val.dummy、val.data[0]~val.data[2]
+        uint8_t buff[7]; 
+    } GYRO;   //读到的陀螺仪原数据
+    
+    uint8_t acc_data_ready;
+    uint8_t gyro_data_ready;
 
-    float pitch;
-    float roll;
-    float yaw;
-    float lastyaw;
-		/* 记录陀螺仪累计旋转多少度 */
-		float yawsum;
-		/* 陀螺仪动态数据矫正 */
-		uint8_t DynamicOffsetEnable;	// 是否进行动态校准标志位
-		int32_t DynamicTmp[3];				// 动态数据累加
-		uint32_t DynamicTimes;				// 校准时间计数
-		uint16_t OffsetCnt;						// 校准周期
-		uint16_t OffsetErrorRange;		// 校准误差范围
-		float gyro_z;
-		int16_t yaw_turns;
-};
-
-typedef struct _mpu mpu;
+} mpu;
+#pragma pack(pop)
 
 extern mpu BMI088;
-extern struct _mpu BMI088_2;
+extern mpu BMI088_2;
 /**
   * @brief 	读取陀螺仪的数据
   * @retval  将读取出来的数据赋值给原始数
@@ -316,3 +300,6 @@ void BMI088_Read_Tmp_Data(bool a);
  * @note:
  ****************************************************/
 void IMU_Read(bool a);
+void IMU_handle(bool a);
+
+

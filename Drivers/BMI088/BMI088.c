@@ -7,6 +7,7 @@
  ****************************************************/
 #include "BMI088.h"
 #include "spi.h"
+#include "dma.h"
 #include "usart.h"
 #include "gpio.h"
 #include "baro.h"
@@ -45,10 +46,6 @@
         HAL_GPIO_WritePin(CS2_GYRO_GPIO_Port, CS2_GYRO_Pin, GPIO_PIN_SET); \
     }
 
-// #define SPI4_ACC_Enable       {  HAL_GPIO_WritePin(CS2_ACC_GPIO_Port,CS2_ACC_Pin, GPIO_PIN_RESET);HAL_GPIO_WritePin(CS2_GYRO_GPIO_Port,CS2_GYRO_Pin, GPIO_PIN_SET);}//PC13
-// #define SPI4_ACC_Disable       {  HAL_GPIO_WritePin(CS2_ACC_GPIO_Port,CS2_ACC_Pin, GPIO_PIN_SET);HAL_GPIO_WritePin(CS2_GYRO_GPIO_Port,CS2_GYRO_Pin, GPIO_PIN_SET);}
-// #define SPI4_GYRO_Enable     {  HAL_GPIO_WritePin(CS2_ACC_GPIO_Port,CS2_ACC_Pin, GPIO_PIN_SET);HAL_GPIO_WritePin(CS2_GYRO_GPIO_Port,CS2_GYRO_Pin, GPIO_PIN_RESET);}//PC2
-// #define SPI4_GYRO_Disable     {  HAL_GPIO_WritePin(CS2_ACC_GPIO_Port,CS2_ACC_Pin, GPIO_PIN_SET);HAL_GPIO_WritePin(CS2_GYRO_GPIO_Port,CS2_GYRO_Pin, GPIO_PIN_SET);}
 
 #define CS_GYRO 0
 #define CS_ACC 1
@@ -59,12 +56,12 @@
 float accel_offset[3] = {0.0f, 0.0f, 0.0f}; // 加速度计三轴零偏
 float gyro_offset[3] = {0.0f, 0.0f, 0.0f};  // 陀螺仪三轴零偏
 
-low_pass_filter_t accel_filter1[3]; // 加速度计滤波
-low_pass_filter_t gyro_filter1[3];  // 陀螺仪滤波
-low_pass_filter_t accel_filter2[3]; // 加速度计滤波
-low_pass_filter_t gyro_filter2[3];  // 陀螺仪滤波
+low_pass_filter_t accel_filter1[3]={0,0,0}; // 加速度计滤波
+low_pass_filter_t gyro_filter1[3]={0,0,0};  // 陀螺仪滤波
+low_pass_filter_t accel_filter2[3]={0,0,0}; // 加速度计滤波
+low_pass_filter_t gyro_filter2[3]={0,0,0};  // 陀螺仪滤波
 
-/* 用于读取BMI088温度数据 */
+/* 用于读取BMI088温度数据（无dummy） */
 // spi通信在bmi里面，bit（0）位为1表示读，0表示写，这里因为是小端是或0x80
 static void BMI088_accel_read_muli_reg(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *buf, uint8_t len)
 {
@@ -139,7 +136,7 @@ static uint8_t BMI088_Read_ACC(SPI_HandleTypeDef *hspi, uint8_t Addr, int BOARD_
         BMI088_SPIReadSend(hspi, Addr | 0x80);
 
     // 在读取加速度计数据时，传感器不会直接返回请求的寄存器数据
-    // 而是先发送一个不可预测的虚拟字节（dummy byte），之后才发送实际的寄存器内容。
+    // 而是先返回一个不可预测的虚拟字节（dummy byte），之后才发送实际的寄存器内容。
     BMI088_SPIReadSend(hspi, 0x00);
 
     val = (uint8_t)(BMI088_SPIReadSend(hspi, 0x00) & 0xFF);
@@ -241,10 +238,10 @@ static uint8_t BMI088_ACC_Congfig(SPI_HandleTypeDef *hspi, int BOARD_OR_FLOAT)
         BMI088_Write_Reg(hspi, ACC_RANG, Plus_Minus_6G, CS_ACC); // ACC Rang +- 24g;//
         BMI088_Delay(5);
     }
-    while (BMI088_Read_ACC(hspi, 0x40, BOARD_OR_FLOAT) != 0xBA)
+    while (BMI088_Read_ACC(hspi, 0x40, BOARD_OR_FLOAT) != 0xBC)//BC为最大频率
     {
         /* 可根据实际使用和加速度寄存器表修改加速度计数据读取频率 */
-        BMI088_Write_Reg(hspi, 0x40, 0xBA, CS_ACC); //
+        BMI088_Write_Reg(hspi, 0x40, 0xBC, CS_ACC); //
         BMI088_Delay(5);
     }
     while (BMI088_Read_ACC(hspi, 0X53, BOARD_OR_FLOAT) != 0X08)
@@ -317,7 +314,7 @@ static uint8_t BMI088_GYRO_Congfig(SPI_HandleTypeDef *hspi, int BOARD_OR_FLOAT)
     // bit #7 is Read Only
 
     /* 可根据陀螺仪寄存器对照表陀螺仪采样率是2000hz以及相对应的滤波器宽度 */
-    BMI088_Write_Reg(hspi, GYRO_BANDWIDTH, ODR_400_FD_47, CS_GYRO);
+    BMI088_Write_Reg(hspi, GYRO_BANDWIDTH, ODR_2000_FD_532, CS_GYRO);
 
     while (BMI088_Read_GYRO(hspi, 0X11, BOARD_OR_FLOAT) != 0x00)
     {
@@ -423,7 +420,7 @@ static void BMI088_read_muli_reg(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *
  * @date:2022/05/31
  * @note:
  ****************************************************/
-uint8_t BMI088_FLOAT_ACC_GYRO_Init(SPI_HandleTypeDef *hspi)
+uint8_t BMI088_ACC_GYRO_Init(SPI_HandleTypeDef *hspi)
 {
 
     BMI088_ACC_Congfig(hspi, FLOAT_IMU);
@@ -431,10 +428,10 @@ uint8_t BMI088_FLOAT_ACC_GYRO_Init(SPI_HandleTypeDef *hspi)
 
     for (int i = 0; i < 3; i++) // 初始化滤波器
     {
-        lpf_set_cutoff_frequency(&accel_filter1[i], 800, 20);
-        lpf_set_cutoff_frequency(&gyro_filter1[i], 800, 20);
-        lpf_set_cutoff_frequency(&accel_filter2[i], 800, 20);
-        lpf_set_cutoff_frequency(&gyro_filter2[i], 800, 20);
+        lpf_set_cutoff_frequency(&accel_filter1[i], 1600, 30);
+        lpf_set_cutoff_frequency(&gyro_filter1[i], 2000, 30);
+        lpf_set_cutoff_frequency(&accel_filter2[i], 1600, 30);
+        lpf_set_cutoff_frequency(&gyro_filter2[i], 2000, 30);
     }
 
     return 1;
@@ -458,6 +455,9 @@ void BMI088_Read_TMP(float *temperate)
     *temperate = bmi088_raw_temp * BMI088_TEMP_FACTOR + BMI088_TEMP_OFFSET;
 }
 
+
+static void BMI088_accel_read_start_IT(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *buf, uint16_t len);
+static void BMI088_gyro_read_start_IT(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *buf, uint16_t len);
 /* 按键外部中断定义变量 */
 extern uint8_t exit_flag;
 extern uint8_t rising_falling_flag;
@@ -473,6 +473,7 @@ extern uint8_t rising_falling_flag;
 int16_t Gyro_Cnt = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+//	log_d("bmi_int");
     //    if( mtime.Init_OK!=1)
     //        return;
 
@@ -484,15 +485,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         //     uint8_t TEXTACC[1] = {0x01};
         //         HAL_UART_Transmit(&huart4, TEXTACC, 1, 100); //发送数据给串口
 
-        BMI088.ACC.buff[0] = BMI088_Read_ACC(&hspi1, 0X12, FLOAT_IMU);
-        BMI088.ACC.buff[1] = BMI088_Read_ACC(&hspi1, 0X13, FLOAT_IMU);
-        BMI088.ACC.buff[2] = BMI088_Read_ACC(&hspi1, 0X14, FLOAT_IMU);
-        BMI088.ACC.buff[3] = BMI088_Read_ACC(&hspi1, 0X15, FLOAT_IMU);
-        BMI088.ACC.buff[4] = BMI088_Read_ACC(&hspi1, 0X16, FLOAT_IMU);
-        BMI088.ACC.buff[5] = BMI088_Read_ACC(&hspi1, 0X17, FLOAT_IMU); // 12--17为加速度计xyz信息
+        BMI088_accel_read_start_IT(&hspi1, 0x12, BMI088.ACC.buff, 8);// 12--17为加速度计xyz信息，一位dummy
 
         /* 用于读取传感器的温度 */
-        BMI088_accel_read_muli_reg(&hspi1, BMI088_TEMP_M, BMI088.temp_originalbuff, 2); // 读取raw温度数据
+        // BMI088_accel_read_muli_reg(&hspi1, BMI088_TEMP_M, BMI088.temp_originalbuff, 2); // 读取raw温度数据
         break;
     case INT_GYRO_Pin: // GYRO中断
 
@@ -500,13 +496,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         //     uint8_t TEXTGYRO[1] = {0x02};
         //         HAL_UART_Transmit(&huart4, TEXTGYRO, 1, 100); //发送数据给串口
 
-        BMI088.GYRO.buff[0] = BMI088_Read_GYRO(&hspi1, 0X02, FLOAT_IMU);
-        BMI088.GYRO.buff[1] = BMI088_Read_GYRO(&hspi1, 0X03, FLOAT_IMU);
-        BMI088.GYRO.buff[2] = BMI088_Read_GYRO(&hspi1, 0X04, FLOAT_IMU);
-        BMI088.GYRO.buff[3] = BMI088_Read_GYRO(&hspi1, 0X05, FLOAT_IMU);
-        BMI088.GYRO.buff[4] = BMI088_Read_GYRO(&hspi1, 0X06, FLOAT_IMU);
-        BMI088.GYRO.buff[5] = BMI088_Read_GYRO(&hspi1, 0X07, FLOAT_IMU); // 2--7为陀螺仪xyz信息
-        /* 陀螺仪的引脚触发中断一次，计数+1，用于确定陀螺仪传感器实际的传输频率*/
+        BMI088_gyro_read_start_IT(&hspi1, 0x02, BMI088.GYRO.buff, 7); // 2--7为陀螺仪xyz信息
+        
         break;
 
     case INT_ACC2_Pin: // ACC2中断
@@ -515,15 +506,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         //    uint8_t TEXTACC2[1] = {0x03};
         //        HAL_UART_Transmit(&huart4, TEXTACC2, 1, 100); //发送数据给串口
 
-        BMI088_2.ACC.buff[0] = BMI088_Read_ACC(&hspi4, 0X12, FLOAT_IMU);
-        BMI088_2.ACC.buff[1] = BMI088_Read_ACC(&hspi4, 0X13, FLOAT_IMU);
-        BMI088_2.ACC.buff[2] = BMI088_Read_ACC(&hspi4, 0X14, FLOAT_IMU);
-        BMI088_2.ACC.buff[3] = BMI088_Read_ACC(&hspi4, 0X15, FLOAT_IMU);
-        BMI088_2.ACC.buff[4] = BMI088_Read_ACC(&hspi4, 0X16, FLOAT_IMU);
-        BMI088_2.ACC.buff[5] = BMI088_Read_ACC(&hspi4, 0X17, FLOAT_IMU); // 12--17为加速度计xyz信息
+        BMI088_accel_read_start_IT(&hspi4, 0x12, BMI088_2.ACC.buff, 8); // 12--17为加速度计xyz信息，一位dummy
 
         /* 用于读取传感器的温度 */
-        BMI088_accel_read_muli_reg(&hspi4, BMI088_TEMP_M, BMI088.temp_originalbuff, 2); // 读取raw温度数据
+        // BMI088_accel_read_muli_reg(&hspi4, BMI088_TEMP_M, BMI088_2.temp_originalbuff, 2); // 读取raw温度数据
         break;
     case INT_GYRO2_Pin: // GYRO2中断
 
@@ -531,20 +517,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         //    uint8_t TEXTGYRO2[1] = {0x04};
         //        HAL_UART_Transmit(&huart4, TEXTGYRO2, 1, 100); //发送数据给串口
 
-        BMI088_2.GYRO.buff[0] = BMI088_Read_GYRO(&hspi4, 0X02, FLOAT_IMU);
-        BMI088_2.GYRO.buff[1] = BMI088_Read_GYRO(&hspi4, 0X03, FLOAT_IMU);
-        BMI088_2.GYRO.buff[2] = BMI088_Read_GYRO(&hspi4, 0X04, FLOAT_IMU);
-        BMI088_2.GYRO.buff[3] = BMI088_Read_GYRO(&hspi4, 0X05, FLOAT_IMU);
-        BMI088_2.GYRO.buff[4] = BMI088_Read_GYRO(&hspi4, 0X06, FLOAT_IMU);
-        BMI088_2.GYRO.buff[5] = BMI088_Read_GYRO(&hspi4, 0X07, FLOAT_IMU); // 2--7为陀螺仪xyz信息
-        /* 陀螺仪的引脚触发中断一次，计数+1，用于确定陀螺仪传感器实际的传输频率*/
+        BMI088_gyro_read_start_IT(&hspi4, 0x02, BMI088_2.GYRO.buff, 7); // 2--7为陀螺仪xyz信息
+        
         break;
 
     default:
         break;
     }
 
-    BARO_GPIO_EXTI_Callback(GPIO_Pin);
+    // BARO_GPIO_EXTI_Callback(GPIO_Pin);//气压计中断回调函数
 }
 
 // ——————————————————————————————————————————————————————————————————————————————————————————————
@@ -556,7 +537,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 // 陀螺仪零偏矫正
 mpu BMI088;
-struct _mpu BMI088_2;
+mpu BMI088_2;
 
 /**
  * @brief 	读取陀螺仪的数据
@@ -568,15 +549,15 @@ void BMI088_Read_Gyro_Data(bool a)
 {
     if (!a)
     {
-        BMI088.gyro.origin[xx] = BMI088.GYRO.data[xx]; // union联合体地址共享
-        BMI088.gyro.origin[yy] = BMI088.GYRO.data[yy];
-        BMI088.gyro.origin[zz] = -BMI088.GYRO.data[zz];
+        BMI088.gyro.origin[xx] = BMI088.GYRO.val.data[xx]; // union联合体地址共享
+        BMI088.gyro.origin[yy] = BMI088.GYRO.val.data[yy];
+        BMI088.gyro.origin[zz] = -BMI088.GYRO.val.data[zz];
     }
     else
     {
-        BMI088_2.gyro.origin[xx] = BMI088_2.GYRO.data[xx]; // union联合体地址共享
-        BMI088_2.gyro.origin[yy] = BMI088_2.GYRO.data[yy];
-        BMI088_2.gyro.origin[zz] = -BMI088_2.GYRO.data[zz];
+        BMI088_2.gyro.origin[xx] = BMI088_2.GYRO.val.data[xx]; // union联合体地址共享
+        BMI088_2.gyro.origin[yy] = BMI088_2.GYRO.val.data[yy];
+        BMI088_2.gyro.origin[zz] = -BMI088_2.GYRO.val.data[zz];
     }
 }
 
@@ -590,15 +571,15 @@ void BMI088_Read_Acc_Data(bool a)
 {
     if (!a)
     {
-        BMI088.acc.origin[xx] = BMI088.ACC.data[yy];
-        BMI088.acc.origin[yy] = -BMI088.ACC.data[xx];
-        BMI088.acc.origin[zz] = BMI088.ACC.data[zz];
+        BMI088.acc.origin[xx] = BMI088.ACC.val.data[yy];
+        BMI088.acc.origin[yy] = -BMI088.ACC.val.data[xx];
+        BMI088.acc.origin[zz] = BMI088.ACC.val.data[zz];
     }
     else
     {
-        BMI088_2.acc.origin[xx] = BMI088_2.ACC.data[yy];
-        BMI088_2.acc.origin[yy] = -BMI088_2.ACC.data[xx];
-        BMI088_2.acc.origin[zz] = BMI088_2.ACC.data[zz];
+        BMI088_2.acc.origin[xx] = BMI088_2.ACC.val.data[yy];
+        BMI088_2.acc.origin[yy] = -BMI088_2.ACC.val.data[xx];
+        BMI088_2.acc.origin[zz] = BMI088_2.ACC.val.data[zz];
     }
 }
 
@@ -620,6 +601,7 @@ void BMI088_Read_Tmp_Data(bool a)
     }
 }
 
+//————————————————————————————————旧版———————————————————————————**数据更新频率和解算频率不一定对的上，并且有可能重复计算同一个数据**
 /*!***************************************************
  * @file: MYGYROData.c
  * @brief:读取加速度/陀螺仪数据并进行单位转换，并转换为 m/(s^2)和°/s
@@ -660,3 +642,124 @@ void IMU_Read(bool a)
         }
     }
 }
+static uint8_t *spi1_curr_rx = NULL;   // 记录当前是谁在跑
+//————————————————————————————————新版————————————————————————————————*使用中断通知spi+dma去读取数据*
+static void BMI088_accel_read_start_IT(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *buf, uint16_t len)
+{
+//	log_d("startdmacc");
+    spi1_curr_rx = buf;                // 记住本次接收缓冲区
+    uint8_t tx[8] = {0};          // 1 字节地址 + 6 字节 Dummy
+    tx[0] = reg | 0x80;           // 读命令 + 地址
+    /* 片选拉低由外部宏完成 */
+    SPI1_ACC_Enable;
+    HAL_SPI_TransmitReceive_IT(hspi, tx, buf, len);
+    /* 注意：buf 长度 = len + 1，因为第 1 字节是 Dummy */
+}
+
+/* 启动陀螺仪一次 DMA 读（6 字节角速度数据，无 Dummy） */
+static void BMI088_gyro_read_start_IT(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t *buf, uint16_t len)
+{
+//	log_d("startdmagyro");
+    spi1_curr_rx = buf;                // 记住本次接收缓冲区    
+    /* 陀螺仪 SPI 不需要 Dummy，len 直接等于 6 */
+    uint8_t tx[7] = {0};
+    tx[0] = reg | 0x80;          /* 读命令 + 起始寄存器地址 */
+
+    SPI1_GYRO_Enable;          /* 拉低陀螺仪片选 CSB2 */
+    HAL_SPI_TransmitReceive_IT(hspi, tx, buf, len);
+    /* DMA 完成后在 HAL_SPI_TxRxCpltCallback 里拉高 CSB2 */
+}
+
+/* 加速度/陀螺仪数据读取完成回调函数 */
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
+//    log_d("dma back");
+    if (hspi == &hspi1) {
+        if (spi1_curr_rx == BMI088.ACC.buff) {
+        	spi1_curr_rx = NULL;
+            // BMI088加速度计数据处理
+            SPI1_ACC_Disable;
+            BMI088.acc_data_ready = 1;
+            BMI088.acc.acc_timestamp = HAL_GetTick();//要把uwtick配置位0.1ms更新一次，这样差不多4.7天才会溢出
+//            printf("%d\r\n",BMI088.acc.acc_timestamp);
+        } else if (spi1_curr_rx == BMI088.GYRO.buff) {
+        	spi1_curr_rx = NULL;
+            // BMI088陀螺仪数据处理
+            SPI1_GYRO_Disable;  
+            BMI088.gyro_data_ready = 1;
+            BMI088.gyro.gyro_timestamp = HAL_GetTick();
+//            log_d("%d",BMI088.gyro.gyro_timestamp);
+        }
+    } else if (hspi == &hspi4) {
+        if (hspi->pRxBuffPtr == BMI088_2.ACC.buff) {
+            // BMI088_2加速度计数据处理
+            SPI1_ACC_Disable;
+            BMI088_2.acc_data_ready = 1;
+            BMI088_2.acc.acc_timestamp = HAL_GetTick();
+        } else if (hspi->pRxBuffPtr == BMI088_2.GYRO.buff) {
+            // BMI088_2陀螺仪数据处理
+            SPI1_GYRO_Disable;
+            BMI088_2.gyro_data_ready = 1;
+            BMI088_2.gyro.gyro_timestamp = HAL_GetTick();
+        }
+    }
+}
+
+void IMU_handle(bool a)//放在主循环一直跑就好
+{
+    if (!a)//先判断哪一个imu
+    {
+        mpu *mympu = &BMI088; // 使用指针去操作BMI088的结构体
+
+        if (BMI088.acc_data_ready) {  //检查是否有加速度数据更新
+            BMI088.acc_data_ready = 0;
+            BMI088_Read_Acc_Data(a);
+            for (int i = 0; i < 3; i++)
+            {
+                mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2;
+                mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter1[i], mympu->acc.m_s_2[i]);
+//                log_d("acc%d: %f", i, mympu->acc.m_s_2[i]);
+            }
+        //    printf("%2f,%2f,%2f\r\n", mympu->acc.m_s_2[0], mympu->acc.m_s_2[1], mympu->acc.m_s_2[2]);
+        }
+
+        if (BMI088.gyro_data_ready) {  //检查是否有陀螺仪数据更新
+            BMI088.gyro_data_ready = 0;
+            BMI088_Read_Gyro_Data(a);
+            for (int i = 0; i < 3; i++)
+            {
+                mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.01745f;
+                mympu->gyro.dps[i] = lpf_allpy(&gyro_filter1[i], mympu->gyro.dps[i]);
+                //  log_d("gyro%d: %f", i, mympu->gyro.dps[i]);
+            }
+            //  printf("%2f,%2f,%2f\r\n", mympu->gyro.dps[0], mympu->gyro.dps[1], mympu->gyro.dps[2]);
+        }
+    }
+    else
+        {
+            mpu *mympu = &BMI088_2; // 使用指针去操作BMI088_2的结构体
+            if (BMI088_2.acc_data_ready) {
+                BMI088_2.acc_data_ready = 0;
+                BMI088_Read_Acc_Data(a);
+                for (int i = 0; i < 3; i++)
+                {
+                    mympu->acc.m_s_2[i] = mympu->acc.origin[i] * MPU_ACCE_M_S_2;
+                    mympu->acc.m_s_2[i] = lpf_allpy(&accel_filter2[i], mympu->acc.m_s_2[i]);
+                }
+            }
+
+            if (BMI088_2.gyro_data_ready) {
+                BMI088_2.gyro_data_ready = 0;   
+                BMI088_Read_Gyro_Data(a);
+                for (int i = 0; i < 3; i++)
+                {
+                    mympu->gyro.dps[i] = mympu->gyro.origin[i] * MPU_GYRO_TO_DPS*0.01745f;
+                    mympu->gyro.dps[i] = lpf_allpy(&gyro_filter2[i], mympu->gyro.dps[i]);
+                }
+            } 
+        }  
+
+}
+
+
+
+
