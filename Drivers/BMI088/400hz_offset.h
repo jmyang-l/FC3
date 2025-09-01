@@ -1,6 +1,7 @@
 #ifndef BMI088_400HZ_OFFSET_H_
 #define BMI088_400HZ_OFFSET_H_
 
+#include "main.h"
 
 
 typedef struct {

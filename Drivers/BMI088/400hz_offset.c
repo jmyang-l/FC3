@@ -1,9 +1,11 @@
-include"400hz_offset.h"
+#include "400hz_offset.h"
 
 #define SUB_FIFO_LEN 8
 static ImuSubSample_t gyr_fifo[SUB_FIFO_LEN];
 static ImuSubSample_t acc_fifo[SUB_FIFO_LEN];
 static uint8_t gyr_head = 0, acc_head = 0;
+
+#define MIN(a, b)  ((a) < (b) ? (a) : (b))
 
 /* 三维向量叉乘 a×b → c */
 static inline void cross3(const float a[3], const float b[3], float c[3])
@@ -101,7 +103,7 @@ static void sculling_4sample(const ImuSubSample_t *a,
 }
 
 /*────────────────────────────────────────────────────────────
- *  从环形 FIFO 提取指定时间窗口内的子样
+ *  从环形 FIFO 提取指定时间窗口内的子样，只保留时间戳落在 [t0,t1] 区间 的子样
  * 参数
  *   fifo   : 环形缓冲区首地址
  *   head   : 最新写入位置的索引（写指针）
@@ -131,8 +133,10 @@ static int extract_window(const ImuSubSample_t *fifo,
     return cnt;
 }
 
-
+float g_imu_dt = 0.0f;   // 供外部引用
 static uint64_t last_t = 0;
+float dθ_total[3];
+float dv_total[3];
 /**
  * @brief  400 Hz IMU 融合任务
  *
@@ -146,8 +150,9 @@ static uint64_t last_t = 0;
 void imu_400hz_task(void)
 {
     /* 当前时间戳 (µs) */
-    uint64_t now   = micros();            // 微秒级单调时钟
+    uint64_t now   = Get_dwt_us();            // 微秒级单调时钟
     uint64_t dt_us = now - last_t;        // 距上次调用的时间间隔
+    g_imu_dt = dt_us * 1e-6f;   // 单位：s
     last_t = now;
 
     /*----------------------------------------------------------
@@ -160,23 +165,64 @@ void imu_400hz_task(void)
                              now - 2500, now, gyr_buf, 5);
     int n_a = extract_window(acc_fifo, acc_head,
                              now - 2500, now, acc_buf, 4);
+    // log_d("子样数 %d %d", n_g, n_a);
 
     /*----------------------------------------------------------
-     * 2. 圆锥补偿：把 5 个陀螺子样 → 1 个无漂移角增量 Δθ
+     * 2.1 圆锥补偿：把 5 个陀螺子样 → 1 个无漂移角增量 Δθ
      *----------------------------------------------------------*/
     float dθ_corr[3];
     coning_5sample(gyr_buf, n_g, dθ_corr);   // 单位：rad
 
+/*----------------------------------------------------------
+     * 2.2 原始角增量 Σdθ_raw
+     *----------------------------------------------------------*/
+    float dθ_raw[3] = {0};
+    for (int i = 0; i < n_g; i++) {
+        dθ_raw[0] += gyr_buf[i].dθ[0];
+        dθ_raw[1] += gyr_buf[i].dθ[1];
+        dθ_raw[2] += gyr_buf[i].dθ[2];
+    }
+
     /*----------------------------------------------------------
-     * 3. 划桨补偿：把 4 个加计子样 → 1 个无漂移速度增量 Δv
+     * 2.3 最终角增量 = 原始 + 圆锥补偿
+     *----------------------------------------------------------*/
+    for (int k = 0; k < 3; k++)
+        dθ_total[k] = dθ_raw[k] + dθ_corr[k];
+// printf("%2f,%2f,%2f\r\n", dθ_corr[0], dθ_corr[1], dθ_corr[2]);
+//  printf(" %.3f,%.3f,%.3f\n",dθ_total[0] / dt, dθ_total[1] / dt, dθ_total[2] / dt);
+    /*----------------------------------------------------------
+     * 3.1 划桨补偿：把 4 个加计子样 → 1 个无漂移速度增量 Δv
      *----------------------------------------------------------*/
     float dv_corr[3];
-    sculling_4sample(acc_buf, n_a, dv_corr); // 单位：m/s
+    sculling_4sample(acc_buf, n_a,             // 加速度子样
+                    gyr_buf, n_g,              // 陀螺子样
+                    dv_corr);                  // 输出 Δv
 
+    /*----------------------------------------------------------
+     * 3.2 原始速度增量 Σdv_raw
+     *----------------------------------------------------------*/
+    float dv_raw[3] = {0};
+        for (int i = 0; i < n_a; i++) {
+            dv_raw[0] += acc_buf[i].dv[0];
+            dv_raw[1] += acc_buf[i].dv[1];
+            dv_raw[2] += acc_buf[i].dv[2];
+        }
+
+    /*----------------------------------------------------------
+     * 3.3 最终速度增量 = 原始 + 划桨补偿
+     *----------------------------------------------------------*/        
+    for (int k = 0; k < 3; k++){
+        dv_total[k] = dv_raw[k] + dv_corr[k];}
+        // log_d(" %d,%.3f", n_a,dv_total[2]/dt);
+//    printf("%.6f,%.6f,%.6f\r\n", dv_corr[0], dv_corr[1], dv_corr[2]);
+//  printf(" %.3f,%.3f,%.3f\n",dv_total[0], dv_total[1], dv_total[2]);
+// float mag_theta = sqrtf(dθ_corr[0]*dθ_corr[0] + dθ_corr[1]*dθ_corr[1] + dθ_corr[2]*dθ_corr[2]);
+// float mag_vel   = sqrtf(dv_corr[0]*dv_corr[0] + dv_corr[1]*dv_corr[1] + dv_corr[2]*dv_corr[2]);
+// log_d("C %.4f %.4f", mag_theta, mag_vel);//打印2.5ms内IMU角增量和加速度增量的模值，用于判断零偏大小
     /*----------------------------------------------------------
      * 4. 喂给 400 Hz 姿态积分器
      *----------------------------------------------------------*/
-    attitude_update(dθ_corr, dv_corr, dt_us * 1e-6f); // dt 单位：s
+//    attitude_update(dθ_corr, dv_corr, dt_us * 1e-6f); // dt 单位：s
 }
 
 

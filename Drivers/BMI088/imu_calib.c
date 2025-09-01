@@ -53,18 +53,18 @@ bool imu_gyrobias(void)
 //			acc_raw[4][2]=acc_bias.z;
 
 //	        printf("IMU零偏校准完成\r\n");
-//	        printf("  acc bias:  x=%.3f y=%.3f z=%.3f\r\n", acc_bias.x, acc_bias.y, acc_bias.z);
+	        // elog_raw("%.3f %.3f %.3f\r\n", acc_bias.x, acc_bias.y, acc_bias.z);
 //	        printf("  gyro bias: x=%.3f y=%.3f z=%.3f\r\n", gyro_bias.x, gyro_bias.y, gyro_bias.z);
 	    }
 	    return calib_done;          // 校准未完，直接退出主流程
 	}
 	else
 	{
-//		calib_done=!calib_done;
-//		calib_cnt=0;
-//	    acc_sum.x  = 0;
-//	    acc_sum.y  = 0;
-//	    acc_sum.z  = 0;
+		// calib_done=!calib_done;
+		// calib_cnt=0;
+	    // acc_sum.x  = 0;
+	    // acc_sum.y  = 0;
+	    // acc_sum.z  = 0;
 		return calib_done;
 	}
 

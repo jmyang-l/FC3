@@ -224,7 +224,7 @@ typedef struct _accdata
     short origin[XAISN];  //原始值
     float m_s_2[XAISN];      //米每二次方秒
         //时间戳
-    uint32_t acc_timestamp;//足够，不用担心溢出
+    uint64_t acc_timestamp;//足够，不用担心溢出
 } accdata;
 
 typedef struct _gyrodata
@@ -232,7 +232,7 @@ typedef struct _gyrodata
     short origin[XAISN];  //原始值
     float dps[XAISN];         //弧度每秒
       //时间戳
-    uint32_t gyro_timestamp;
+    uint64_t gyro_timestamp;
 } gyrodata;
 
 #pragma pack(push, 1)
@@ -265,6 +265,11 @@ typedef struct _mpu
     uint8_t acc_data_ready;
     uint8_t gyro_data_ready;
 
+    // 新增：PX4风格的总线与调度管理
+    uint8_t spi_busy;        // SPI总线是否忙碌（0-空闲，1-忙碌），替代互斥锁的轻量实现
+    uint8_t current_dev;     // 当前操作的设备（0-无，1-acc，2-gyro）
+    void (*acc_work)(void);  // 加速度计工作项函数指针
+    void (*gyro_work)(void); // 陀螺仪工作项函数指针
 } mpu;
 #pragma pack(pop)
 

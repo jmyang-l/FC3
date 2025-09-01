@@ -67,16 +67,16 @@ static void imu_selector_update(void)
 {
     /* IMU1 */
     IMU_Read(false);
-    vec3f accel1 = {{ BMI088.acc.m_s_2[0], BMI088.acc.m_s_2[1], BMI088.acc.m_s_2[2] }};
-    vec3f gyro1  = {{ BMI088.gyro.dps[0],  BMI088.gyro.dps[1],  BMI088.gyro.dps[2] }};
+    vec3f accel1 = {{{ BMI088.acc.m_s_2[0], BMI088.acc.m_s_2[1], BMI088.acc.m_s_2[2] }}};
+    vec3f gyro1  = {{{ BMI088.gyro.dps[0],  BMI088.gyro.dps[1],  BMI088.gyro.dps[2] }}};
     float s1 = imu_compute_score(&accel1, &gyro1, BMI088.Temperature);
     score1_lpf = score1_lpf * 0.9f + s1 * 0.1f;   // 一阶低通
     imu1_health.score = score1_lpf;               // 用滤波值
 
     /* IMU2 */
     IMU_Read(true);
-    vec3f accel2 = {{ BMI088_2.acc.m_s_2[0], BMI088_2.acc.m_s_2[1], BMI088_2.acc.m_s_2[2] }};
-    vec3f gyro2  = {{ BMI088_2.gyro.dps[0],  BMI088_2.gyro.dps[1],  BMI088_2.gyro.dps[2] }};
+    vec3f accel2 = {{{ BMI088_2.acc.m_s_2[0], BMI088_2.acc.m_s_2[1], BMI088_2.acc.m_s_2[2] }}};
+    vec3f gyro2  = {{{ BMI088_2.gyro.dps[0],  BMI088_2.gyro.dps[1],  BMI088_2.gyro.dps[2] }}};
     float s2 = imu_compute_score(&accel2, &gyro2, BMI088_2.Temperature);
     score2_lpf = score2_lpf * 0.9f + s2 * 0.1f;
     imu2_health.score = score2_lpf;
