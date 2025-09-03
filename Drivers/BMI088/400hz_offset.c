@@ -149,11 +149,13 @@ float dv_total[3];
  */
 void imu_400hz_task(void)
 {
-    /* 当前时间戳 (µs) */
-    uint64_t now   = Get_dwt_us();            // 微秒级单调时钟
-    uint64_t dt_us = now - last_t;        // 距上次调用的时间间隔
-    g_imu_dt = dt_us * 1e-6f;   // 单位：s
-    last_t = now;
+    /* 1. 取窗口起点 = 上一次调用结束时刻 */
+    static uint64_t last_update_us = 0;
+    uint64_t now_us = Get_dwt_us();
+    uint64_t t0 = last_update_us;          // 本次窗口起点
+    uint64_t t1 = now_us;               // 本次窗口终点
+    g_imu_dt    = (t1 - t0) * 1e-6f;    // 真实 dt
+    last_update_us = t1;                   // 为下一帧做准备
 
     /*----------------------------------------------------------
      * 1. 从环形 FIFO 提取最近 2.5 ms 内的全部子样
@@ -162,11 +164,11 @@ void imu_400hz_task(void)
     ImuSubSample_t acc_buf[4];  // 加计最多 4 子样 (1600 Hz → 2.5 ms)
 
     int n_g = extract_window(gyr_fifo, gyr_head,
-                             now - 2500, now, gyr_buf, 5);
+                             t0, t1, gyr_buf, 5);
     int n_a = extract_window(acc_fifo, acc_head,
-                             now - 2500, now, acc_buf, 4);
+                             t0, t1, acc_buf, 4);
     // log_d("子样数 %d %d", n_g, n_a);
-
+    // printf("dt %.6f\r\n", g_imu_dt);
     /*----------------------------------------------------------
      * 2.1 圆锥补偿：把 5 个陀螺子样 → 1 个无漂移角增量 Δθ
      *----------------------------------------------------------*/
