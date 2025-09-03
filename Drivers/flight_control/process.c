@@ -8,6 +8,8 @@
     extern bool use_imu;
 	extern vec3f acc_bias  ;
 	extern vec3f gyro_bias ;
+    extern float dθ_total[3];
+    extern float dv_total[3];
 
 extern quatf _qd ;//期望四元数
 
@@ -23,8 +25,10 @@ extern float _vel_sp[3];//期望速度
 extern float _thrust_sp[3];//推力矢量
 extern vec3f _rates_sp;//期望角速度
 extern vec3f torque;//期望扭矩
+
 // 假设的控制周期
 const float dt = 0.0025f;
+extern float g_imu_dt;
 
 // 假设的当前偏航角
 float current_yaw_rad = 0.0f;
@@ -53,34 +57,27 @@ void process_main(void)
     }
 
     // 0. 更新数据到 position_estimator 模块
-    get_accel(imu->acc.m_s_2[xx],
-              imu->acc.m_s_2[yy],
-              imu->acc.m_s_2[zz]);
+    get_accel(dv_total[0]/g_imu_dt, dv_total[1]/g_imu_dt, dv_total[2]/g_imu_dt);
+
     vec3f accel = {{
-        { imu->acc.m_s_2[xx],
-          imu->acc.m_s_2[yy],
-          imu->acc.m_s_2[zz] }
+        {dv_total[0]/g_imu_dt, dv_total[1]/g_imu_dt, dv_total[2]/g_imu_dt }
     }};
 
 
-    get_gyro((imu->gyro.dps[xx] - gyro_bias.x),
-             (imu->gyro.dps[yy] - gyro_bias.y),
-             (imu->gyro.dps[zz] - gyro_bias.z));
+    get_gyro((dθ_total[0]/g_imu_dt - gyro_bias.x),
+             (dθ_total[1]/g_imu_dt - gyro_bias.y),
+             (dθ_total[2]/g_imu_dt - gyro_bias.z));
     vec3f gyro = {{
-        { imu->gyro.dps[xx] - gyro_bias.x,
-          imu->gyro.dps[yy] - gyro_bias.y,
-          imu->gyro.dps[zz] - gyro_bias.z }
+        {dθ_total[0]/g_imu_dt - gyro_bias.x,
+          dθ_total[1]/g_imu_dt - gyro_bias.y,
+          dθ_total[2]/g_imu_dt - gyro_bias.z }
     }};
 
-//   printf("%f,%f,%f \r\n", gyro.x, gyro.y, gyro.z);
-
-//   printf("acc=%.3f,%.3f,%.3f\n",
-//          accel.x, accel.y, accel.z);
-//   printf("RAW: gyro=%.3f,%.3f,%.3f\n",
-//          gyro.x, gyro.y, gyro.z);
+//  printf("acc=%.3f,%.3f,%.3f\n",accel.x, accel.y, accel.z);
+//  printf("gyro=%.3f,%.3f,%.3f\n",gyro.x, gyro.y, gyro.z);
 
     // 1. 姿态估计
-    attitude_update(dt, &accel, &gyro);       // 旧
+    attitude_update(g_imu_dt, &accel, &gyro);       // 旧
 //   attitude_update_ekf(dt, &accel, &gyro);     // 新
 
     quatf current_quat = attitude_get_quat();//获取四元数
@@ -91,7 +88,7 @@ void process_main(void)
 //    if(oula++==100)
 //    {
 //    	oula=0;
-    	printf("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
+      elog_raw("%2f,%2f,%2f\r\n", current_euler.roll, current_euler.pitch, current_euler.yaw);
 //    }
 
 
