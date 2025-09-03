@@ -40,7 +40,7 @@
 #include "position_estimator.h"
 #include "process.h"
 #include "imu_selector.h"
-include"400hz_offset.h"
+#include"400hz_offset.h"
 
 #include "sysdelay.h"
 #include "dwtdelay.h"
@@ -420,7 +420,8 @@ int main(void)
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
 
-  SysTick_Init_100us();
+  // SysTick_Init_100us();
+
   /*--------easylogger--------*/
   elog_init();// 初始化 EasyLogger
   /* 设置各级别日志输出格式 */
@@ -451,8 +452,8 @@ int main(void)
   HAL_UART_Receive_IT(&huart4, rx_buffer, 1);
 
   /*-----------初始化并使能BMI088-----------*/
-   BMI088_ACC_GYRO_Init(&hspi1);
-//   BMI088_FLOAT_ACC_GYRO_Init(&hspi4);
+  BMI088_ACC_GYRO_Init(&hspi1);//使能加速度
+  BMI088_ACC_GYRO_Init(&hspi4);//使能陀螺仪
 
 //  /*--------FLASH--------*/
 //    Init_FM25Vx();    //初始化flash：FM25V20A
@@ -504,11 +505,10 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
-
-//	  printf("tick = %lu\r\n", HAL_GetTick());
-
-	  IMU_handle(use_imu);//循环查询方式处理数据
+  { 
+//    printf("%d\r\n",Get_dwt_us());
+	  // printf("tick = %lu\r\n", HAL_GetTick());//获取ms时间
+	  // IMU_handle(use_imu);//循环查询方式处理数据
 
 //	  printf("_2\r\n");
 
@@ -554,7 +554,9 @@ int main(void)
 	  {
 		circle = 0;
 //	  	IMU_Read(use_imu);//读取第一个imu
-	  	process_main();
+     imu_400hz_task();
+     process_main();
+      //  printf("%d\r\n",Get_dwt_us());
 
 	  }
 
