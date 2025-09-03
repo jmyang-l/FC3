@@ -31,7 +31,7 @@
 /* USER CODE BEGIN Includes */
 #include "light_flow.h"
 #include "flow_lowpass.h"
-//#include "BMI088.h"
+//#include "BMI088.h"  //其他文件已经包含了
 #include <stdbool.h> // 包含 bool 类型定义
 #include "baro.h"
 #include "flash.h"
@@ -40,6 +40,10 @@
 #include "position_estimator.h"
 #include "process.h"
 #include "imu_selector.h"
+#include"400hz_offset.h"
+
+#include "sysdelay.h"
+#include "dwtdelay.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -361,7 +365,9 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
   uint8_t bat_cur=0;
   uint8_t circle=0;
   uint8_t select_imu=0;
+  uint8_t time_1s=0;
   bool use_imu = false;//选择使用哪个imu
+
 
 /* USER CODE END 0 */
 
@@ -414,7 +420,21 @@ int main(void)
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
 
-  
+  // SysTick_Init_100us();
+
+  /*--------easylogger--------*/
+  elog_init();// 初始化 EasyLogger
+  /* 设置各级别日志输出格式 */
+  elog_set_fmt(ELOG_LVL_ASSERT, ELOG_FMT_ALL);
+  elog_set_fmt(ELOG_LVL_ERROR, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME);
+  elog_set_fmt(ELOG_LVL_WARN, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME);
+  elog_set_fmt(ELOG_LVL_INFO, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME);
+  elog_set_fmt(ELOG_LVL_DEBUG, ELOG_FMT_ALL & ~(ELOG_FMT_FUNC | ELOG_FMT_T_INFO | ELOG_FMT_P_INFO));
+  elog_set_fmt(ELOG_LVL_VERBOSE, ELOG_FMT_ALL & ~(ELOG_FMT_FUNC | ELOG_FMT_T_INFO | ELOG_FMT_P_INFO));
+  /* 启动日志输出 */
+  elog_start();
+  /* 放在所有 MX_xx_Init() 之后 */
+
   /*--------光流传感器--------*/
   // 启用串口2接收DMA+idle（非阻塞模式）
 //  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_buffer2, sizeof(rx_buffer2));
@@ -432,34 +452,34 @@ int main(void)
   HAL_UART_Receive_IT(&huart4, rx_buffer, 1);
 
   /*-----------初始化并使能BMI088-----------*/
-   BMI088_FLOAT_ACC_GYRO_Init(&hspi1);
-   BMI088_FLOAT_ACC_GYRO_Init(&hspi4);
+  BMI088_ACC_GYRO_Init(&hspi1);//使能加速度
+  BMI088_ACC_GYRO_Init(&hspi4);//使能陀螺仪
 
-  /*--------FLASH--------*/
+//  /*--------FLASH--------*/
 //    Init_FM25Vx();    //初始化flash：FM25V20A
 //
 //    FM25Vx_text();    //测试函数
 
   /*-----------DMA+PWM输出DShot300信号-----------*/
   /* 先关 HT 中断，只留 TC */
-   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch1, DMA_IT_HT);
-   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch2, DMA_IT_HT);
-   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch3, DMA_IT_HT);
-   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch4, DMA_IT_HT);
-  DSHOT_Start();    // 启动 4 路循环发送
-  DSHOT_Update(0, 0);  // 电机 0
-  DSHOT_Update(1, 0);  // 电机 1
-  DSHOT_Update(2, 0);  // 电机 2
-  DSHOT_Update(3, 0);  // 电机 3
+//   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch1, DMA_IT_HT);
+//   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch2, DMA_IT_HT);
+//   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch3, DMA_IT_HT);
+//   __HAL_DMA_DISABLE_IT(&hdma_tim1_ch4, DMA_IT_HT);
+//  DSHOT_Start();    // 启动 4 路循环发送
+//  DSHOT_Update(0, 0);  // 电机 0
+//  DSHOT_Update(1, 0);  // 电机 1
+//  DSHOT_Update(2, 0);  // 电机 2
+//  DSHOT_Update(3, 0);  // 电机 3
 
   /*-----------ADC采样BAT电压与电调电流-----------*/
   //ADC校准参考电压
-  HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc2, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
+//  HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
+//  HAL_ADCEx_Calibration_Start(&hadc2, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 
-  // 启动 ADC 并使能中断
-  HAL_ADC_Start_IT(&hadc1);  // 关键：用 _IT 函数启动，自动使能中断
-  HAL_ADC_Start_IT(&hadc2);
+//  // 启动 ADC 并使能中断
+//  HAL_ADC_Start_IT(&hadc1);  // 关键：用 _IT 函数启动，自动使能中断
+//  HAL_ADC_Start_IT(&hadc2);
 
 
 //  float a_x,a_y,b_x,b_y;
@@ -475,7 +495,8 @@ int main(void)
   uint8_t fly_cnt = 1;
   uint16_t cnt = 0;
 
-  HAL_TIM_Base_Start(&htim7);   // 放在 main 里或任务初始化里一次即可
+  HAL_TIM_Base_Start(&htim7);   // 放在 main 里或任务初始化里一次即可，用于计算函数执行时间
+  DWT_Init();//dwt初始化，用于测量函数时间和中断时间
 
   int del=0;
   bool del_flag=false;
@@ -484,58 +505,61 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
+  { 
+//    printf("%d\r\n",Get_dwt_us());
+	  // printf("tick = %lu\r\n", HAL_GetTick());//获取ms时间
+	  // IMU_handle(use_imu);//循环查询方式处理数据
 
+//	  printf("_2\r\n");
 
-	  if(select_imu==1)//0.5s打分一次，选择使用哪个imu
-	  {
-		  select_imu=0;
+//	  if(time_1s==1)//1s闪烁，指示主循环是否正常运行
+//	    {
+//		  time_1s = 0;
+//		  HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);  // 翻转小灯电平
+//	    }
+//
+//
+ if(select_imu==1)// 每1s打分一次，选择使用哪个imu
+ {
+	  select_imu=0;
 //		  imu_selector_get_active(&use_imu);
 //		  use_imu = use_imu ? false : true;  //false代表使用第一个imu，ture代表使用第二个imu
-		  use_imu = true;
+	  use_imu = false;
 
-	if(del<4)//添加适当的延时，3s后再开始计算零偏
+	if(del<3)//添加适当的延时，3s后再开始计算零偏
 	{
 		del++;
-		if(del==3)
+		if(del==2)
 		{
 			del_flag=true;
 		}
 	}
-
 //      if(use_imu){
-//    	  printf("_2\r\n");
-//      }
+//    	  printf("_2\r\n");}
 //      else{
-//    	  printf("_1\r\n");
-//      }
-
+//    	  printf("_1\r\n");}
 	  }
-
-//	  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7); 测量时间代码段
-
-//    需要测的代码
-
-//	  uint32_t end = __HAL_TIM_GET_COUNTER(&htim7);
 //
-//	  uint32_t us = (end >= start) ? (end - start) : (0xFFFF - start + end);
-//	  printf("耗时: %lu us\r\n", us);
-
+//
+////	  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7); 测量时间代码段
+//
+////    需要测的代码
+//
+////	  uint32_t end = __HAL_TIM_GET_COUNTER(&htim7);
+////
+////	  uint32_t us = (end >= start) ? (end - start) : (0xFFFF - start + end);
+////	  printf("耗时: %lu us\r\n", us);
+//
 	  if(circle == 1 && del_flag==true)
 	  {
-//		  uint32_t start = __HAL_TIM_GET_COUNTER(&htim7);
+		circle = 0;
+//	  	IMU_Read(use_imu);//读取第一个imu
+     imu_400hz_task();
+     process_main();
+      //  printf("%d\r\n",Get_dwt_us());
 
-		    circle = 0;
-
-	  	IMU_Read(use_imu);//读取第一个imu
-	  	process_main();
-
-
-//	  	uint32_t end = __HAL_TIM_GET_COUNTER(&htim7);
-//	  	uint32_t us = (end >= start) ? (end - start) : (0xFFFF - start + end);
-//	  	printf("耗时: %lu us\r\n", us);
-//	  	  HAL_Delay(1);
 	  }
+
 
 
 //		 throttle_motor[0] = (motor_out.m[1]/10) *maxmotor;
@@ -685,7 +709,6 @@ int main(void)
   /* USER CODE END 3 */
 }
 
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -780,6 +803,45 @@ HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_buffer2, sizeof(rx_buffer2));
 
 }
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+
+  if (htim->Instance == TIM6)
+    {
+      //定时器0.1ms中断服务
+//	  void check_time_stability_simple(handler01);
+
+	  t++;
+	  tt++;
+	  if(t==10000)
+	  {
+		  t=0;
+		  time_1s = 1;
+		  select_imu = 1;
+
+	  }
+	  if(tt==25)
+	  {
+		  tt=0;
+		  circle = 1;
+	  }
+
+
+//		  bat_cur = 1;
+//		  uint8_t r[1];
+//		  r[0]=1;
+//		  HAL_UART_Transmit(&huart2, (uint8_t*)&r, sizeof(r), 100);
+//		 printf("BAT_V=%.2f V\r\n",BAT_V*10);
+//		 printf("CURR =%.2f A\r\n\r\n",Dc_Motor_Current);
+//	        IMU_Read(BMIx);
+//	        printf(" %2f %2f %2f \r\n",BMI088.acc.m_s_2[xx],BMI088.acc.m_s_2[yy],BMI088.acc.m_s_2[zz]);
+	  }
+//		 IMU_Read(BMIx);
+//		 process_main();
+}
+
+
+
 /* USER CODE END 4 */
 
  /* MPU Configuration */
@@ -810,62 +872,6 @@ void MPU_Config(void)
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
 }
-
-/**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM4 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM4)
-  {
-    HAL_IncTick();
-  }
-  /* USER CODE BEGIN Callback 1 */
-
-  if (htim->Instance == TIM6)
-    {
-      //定时器1ms中断服务
-//	  void check_time_stability_simple(handler01);
-
-	  t++;
-	  tt++;
-	  if(t==10000)
-	  {
-		  t=0;
-		  select_imu = 1;
-	  }
-	  if(tt==25)
-	  {
-		  tt=0;
-		  circle = 1;
-	  }
-
-
-//		  bat_cur = 1;
-//		  uint8_t r[1];
-//		  r[0]=1;
-//		  HAL_UART_Transmit(&huart2, (uint8_t*)&r, sizeof(r), 100);
-//		 printf("BAT_V=%.2f V\r\n",BAT_V*10);
-//		 printf("CURR =%.2f A\r\n\r\n",Dc_Motor_Current);
-//	        IMU_Read(BMIx);
-//	        printf(" %2f %2f %2f \r\n",BMI088.acc.m_s_2[xx],BMI088.acc.m_s_2[yy],BMI088.acc.m_s_2[zz]);
-	  }
-//		 IMU_Read(BMIx);
-//		 process_main();
-}
-
-
-
-  /* USER CODE END Callback 1 */
-
 
 /**
   * @brief  This function is executed in case of error occurrence.
